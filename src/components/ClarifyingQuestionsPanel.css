@@ -1,0 +1,255 @@
+.clarify {
+  padding: 28px 0 18px;
+}
+
+.clarify__panel {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(79, 70, 229, 0.16);
+  border-radius: 8px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+  padding: 26px;
+}
+
+.clarify__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 18px;
+}
+
+.clarify__eyebrow {
+  color: #4f46e5;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.clarify__title {
+  margin: 8px 0 0;
+  color: #111827;
+  font-size: clamp(1.25rem, 2vw, 1.65rem);
+  line-height: 1.6;
+}
+
+.clarify__score {
+  min-width: 118px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-align: center;
+  color: #312e81;
+}
+
+.clarify__score strong {
+  display: block;
+  font-size: 1.55rem;
+}
+
+.clarify__score span {
+  font-size: 0.82rem;
+}
+
+.clarify__diagnosis {
+  color: #334155;
+  line-height: 1.9;
+  margin: 18px 0;
+}
+
+.clarify__meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.clarify__meta {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.clarify__meta h3 {
+  margin: 0 0 8px;
+  color: #1e293b;
+  font-size: 0.96rem;
+}
+
+.clarify__meta ul {
+  margin: 0;
+  padding-right: 20px;
+  color: #475569;
+  line-height: 1.8;
+}
+
+.clarify__questions {
+  display: grid;
+  gap: 14px;
+}
+
+.clarify__group {
+  margin-top: 18px;
+}
+
+.clarify__group-title {
+  margin: 0 0 10px;
+  color: #1e293b;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.clarify__question {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.clarify__question--invalid {
+  border-color: #ef4444;
+  background: #fff7f7;
+}
+
+.clarify__question-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.clarify__question h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.clarify__required,
+.clarify__field-error,
+.clarify__validation {
+  color: #b91c1c;
+}
+
+.clarify__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.clarify__tags span {
+  background: #eef2ff;
+  color: #3730a3;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.clarify__why {
+  color: #64748b;
+  line-height: 1.8;
+  margin: 10px 0 12px;
+}
+
+.clarify__input,
+.clarify__select,
+.clarify__textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 11px 12px;
+  font: inherit;
+  color: #111827;
+  background: #ffffff;
+  line-height: 1.7;
+}
+
+.clarify__textarea {
+  resize: vertical;
+}
+
+.clarify__input:focus,
+.clarify__select:focus,
+.clarify__textarea:focus {
+  outline: 3px solid rgba(79, 70, 229, 0.18);
+  border-color: #4f46e5;
+}
+
+.clarify__options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.clarify__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px;
+  color: #334155;
+}
+
+.clarify__field-error,
+.clarify__validation {
+  margin-top: 10px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.clarify__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.clarify__btn {
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.clarify__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.clarify__btn--primary {
+  background: #4f46e5;
+  color: #ffffff;
+}
+
+.clarify__btn--secondary {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+@media (max-width: 720px) {
+  .clarify__panel {
+    padding: 18px;
+  }
+
+  .clarify__header,
+  .clarify__question-head {
+    flex-direction: column;
+  }
+
+  .clarify__meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .clarify__score {
+    width: 100%;
+  }
+}

@@ -1,0 +1,98 @@
+.demoflow {
+  padding: 40px 0;
+  background: var(--bg);
+}
+
+.demoflow__title {
+  text-align: center;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.demoflow__desc {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  max-width: 680px;
+  margin: 0 auto 28px;
+  direction: rtl;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.demoflow__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 600px;
+  margin: 0 auto;
+  position: relative;
+}
+
+.demoflow__step {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  position: relative;
+  padding: 10px 0;
+  text-align: right;
+}
+
+.demoflow__num {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.demoflow__content {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-top: 5px;
+  min-width: 0;
+}
+
+.demoflow__label {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.demoflow__detail {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.demoflow__connector {
+  position: absolute;
+  left: 15px;
+  top: 42px;
+  width: 2px;
+  height: calc(100% - 42px);
+  background: var(--border);
+  z-index: 0;
+}
+
+[dir="rtl"] .demoflow__connector {
+  left: auto;
+  right: 15px;
+}
+
+@media (max-width: 768px) {
+  .demoflow {
+    padding: 28px 0;
+  }
+}

@@ -1,0 +1,360 @@
+/* ───── KPI Dashboard ───── */
+
+.kpi-dashboard {
+  font-size: 0.82rem;
+  min-width: 0;
+}
+
+.kpi-dashboard__note {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: var(--radius-sm);
+}
+
+/* ───── Controls ───── */
+
+.kpi-dashboard__controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kpi-dashboard__count {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.kpi-dashboard__reset {
+  padding: 6px 16px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: var(--font);
+  color: var(--primary);
+  background: var(--bg);
+  border: 1px solid var(--primary);
+  border-radius: 100px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: normal;
+}
+
+.kpi-dashboard__reset:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* ───── Card Layout ───── */
+
+.kpi-dashboard__cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.kpi-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  transition: opacity 0.15s, box-shadow 0.15s;
+  min-width: 0;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.kpi-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.kpi-card--disabled {
+  opacity: 0.45;
+}
+
+/* ───── Card Header ───── */
+
+.kpi-card__header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 16px 0;
+}
+
+.kpi-card__toggle {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.kpi-card__checkbox {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.kpi-card__toggle-vis {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  transition: background 0.15s, border-color 0.15s;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.kpi-card__checkbox:checked + .kpi-card__toggle-vis {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.kpi-card__checkbox:checked + .kpi-card__toggle-vis::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 6px;
+  height: 10px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.kpi-card__checkbox:focus-visible + .kpi-card__toggle-vis {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.kpi-card__name {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ───── Card Priority ───── */
+
+.kpi-card__priority {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border-radius: 100px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.kpi-card__priority--critical {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.kpi-card__priority--high {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
+.kpi-card__priority--medium {
+  background: #f0f9ff;
+  color: #2563eb;
+}
+
+.kpi-card__priority--low {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+/* ───── Card Body ───── */
+
+.kpi-card__body {
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ───── Meta Row ───── */
+
+.kpi-card__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kpi-card__badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-bg);
+  border-radius: 100px;
+  white-space: nowrap;
+}
+
+.kpi-card__freq {
+  font-size: 0.72rem;
+  color: var(--text-light);
+}
+
+/* ───── Formula ───── */
+
+.kpi-card__formula {
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--text-light);
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* ───── Input Row ───── */
+
+.kpi-card__inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.kpi-card__field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.kpi-card__label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0;
+}
+
+.kpi-card__input {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 0.8rem;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+  transition: border-color 0.15s;
+  min-width: 0;
+  direction: rtl;
+  text-align: right;
+  unicode-bidi: plaintext;
+}
+
+.kpi-card__input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+}
+
+/* ───── Interpretation ───── */
+
+.kpi-card__interp {
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+/* ───── Responsive ───── */
+
+@media (max-width: 768px) {
+  .kpi-dashboard__cards {
+    grid-template-columns: 1fr;
+  }
+
+  .kpi-card__inputs {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .kpi-dashboard__controls {
+    align-items: stretch;
+  }
+
+  .kpi-dashboard__reset {
+    width: 100%;
+  }
+}
+
+/* ───── Print Table (hidden on screen) ───── */
+
+.kpi-dashboard__print-table {
+  display: none;
+}
+
+@media print {
+  .kpi-dashboard__cards,
+  .kpi-dashboard__controls,
+  .kpi-dashboard__note {
+    display: none;
+  }
+
+  .kpi-dashboard__print-table {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid #ccc;
+    font-size: 0.78rem;
+    color: #222;
+  }
+
+  .kpi-dashboard__print-table th {
+    background: #eee;
+    color: #000;
+    font-weight: 700;
+    font-size: 0.7rem;
+    letter-spacing: 0;
+    padding: 6px 8px;
+    text-align: right;
+    border: 1px solid #ccc;
+  }
+
+  .kpi-dashboard__print-table td {
+    padding: 5px 8px;
+    border: 1px solid #ccc;
+    border-bottom: 1px solid #ccc;
+    vertical-align: top;
+    line-height: 1.4;
+    text-align: right;
+  }
+
+  .kpi-dashboard__print-table th {
+    border-bottom: 1px solid #ccc;
+  }
+
+  .kpi-print__metric {
+    font-weight: 600;
+    color: #000;
+    white-space: nowrap;
+  }
+
+  .kpi-print__interp {
+    font-size: 0.74rem;
+    color: #444;
+  }
+}
+
+/* ───── RTL ───── */
+
+[dir="rtl"] .kpi-dashboard__note {
+  text-align: right;
+}
