@@ -31,9 +31,27 @@ interface FunctionEvent {
   isBase64Encoded?: boolean
 }
 
-const defaultModel = 'gemini-1.5-flash'
+const defaultModel = 'gemini-2.5-flash'
 const maxRequestBodyChars = 40000
 const maxPromptChars = 30000
+const maxProviderErrorMessageChars = 300
+
+interface GeminiProviderDiagnostic {
+  providerStatus: number
+  providerStatusText: string
+  providerErrorStatus?: string
+  providerErrorMessage?: string
+  modelUsed: string
+}
+
+class GeminiProviderError extends Error {
+  diagnostic: GeminiProviderDiagnostic
+
+  constructor(diagnostic: GeminiProviderDiagnostic) {
+    super('GEMINI_PROVIDER_ERROR')
+    this.diagnostic = diagnostic
+  }
+}
 
 export async function handler(event: FunctionEvent) {
   if (event.httpMethod !== 'POST') {
@@ -211,6 +229,23 @@ async function generateAndValidate(args: {
       }
     }
 
+    if (isGeminiProviderError(error)) {
+      const diagnosticPayload = {
+        ok: false,
+        mode: args.mode,
+        errorCode: 'GEMINI_REQUEST_FAILED',
+        errorMessage: 'AI service did not return a usable response. Please try again later.',
+        ...error.diagnostic,
+      }
+
+      console.error('Gemini provider diagnostic', diagnosticPayload)
+
+      return {
+        statusCode: 502,
+        payload: diagnosticPayload,
+      }
+    }
+
     return {
       statusCode: 502,
       payload: {
@@ -297,7 +332,6 @@ async function callGemini(prompt: string): Promise<unknown> {
       body: JSON.stringify({
         contents: [
           {
-            role: 'user',
             parts: [{ text: prompt }],
           },
         ],
@@ -309,7 +343,7 @@ async function callGemini(prompt: string): Promise<unknown> {
     })
 
     if (!response.ok) {
-      throw new Error(`Gemini request failed with status ${response.status}`)
+      throw new GeminiProviderError(await buildProviderDiagnostic(response, model))
     }
 
     return response.json()
@@ -366,6 +400,59 @@ function normalizeGeminiModel(model: string): string {
   return encodeURIComponent(model.replace(/^models\//, '').trim() || defaultModel)
 }
 
+async function buildProviderDiagnostic(
+  response: Response,
+  modelUsed: string,
+): Promise<GeminiProviderDiagnostic> {
+  const providerError = parseProviderError(await readProviderErrorBody(response))
+
+  return {
+    providerStatus: response.status,
+    providerStatusText: response.statusText,
+    providerErrorStatus: providerError.status,
+    providerErrorMessage: truncateProviderErrorMessage(providerError.message),
+    modelUsed,
+  }
+}
+
+async function readProviderErrorBody(response: Response): Promise<string> {
+  try {
+    return await response.text()
+  } catch {
+    return ''
+  }
+}
+
+function parseProviderError(bodyText: string): { status?: string; message?: string } {
+  if (!bodyText.trim()) {
+    return {}
+  }
+
+  try {
+    const body = JSON.parse(bodyText) as unknown
+    if (!isRecord(body) || !isRecord(body.error)) {
+      return {}
+    }
+
+    const { error } = body
+    return {
+      status: typeof error.status === 'string' ? error.status : undefined,
+      message: typeof error.message === 'string' ? error.message : undefined,
+    }
+  } catch {
+    return {
+      message: bodyText,
+    }
+  }
+}
+
+function truncateProviderErrorMessage(message: string | undefined): string | undefined {
+  if (!message) return undefined
+  return message.length > maxProviderErrorMessageChars
+    ? `${message.slice(0, maxProviderErrorMessageChars)}...`
+    : message
+}
+
 function decodeBase64(value: string): string {
   if (typeof Buffer !== 'undefined') {
     return Buffer.from(value, 'base64').toString('utf8')
@@ -384,4 +471,8 @@ function isAbortError(error: unknown): boolean {
 
 function isGeminiTimeoutError(error: unknown): boolean {
   return error instanceof Error && error.message === 'GEMINI_TIMEOUT'
+}
+
+function isGeminiProviderError(error: unknown): error is GeminiProviderError {
+  return error instanceof GeminiProviderError
 }

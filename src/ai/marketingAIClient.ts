@@ -11,6 +11,11 @@ interface FunctionErrorResponse {
   errorCode?: string
   errorMessage?: string
   validationErrors?: string[]
+  providerStatus?: number
+  providerStatusText?: string
+  providerErrorStatus?: string
+  providerErrorMessage?: string
+  modelUsed?: string
 }
 
 interface FunctionSuccessResponse<T> {
@@ -24,6 +29,11 @@ export interface AIClientFailure {
   errorMessage: string
   validationErrors?: string[]
   errorCode?: string
+  providerStatus?: number
+  providerStatusText?: string
+  providerErrorStatus?: string
+  providerErrorMessage?: string
+  modelUsed?: string
 }
 
 export interface AIClientSuccess<T> {
@@ -99,12 +109,21 @@ async function postMarketingAI<T>(payload: Record<string, unknown>): Promise<AIC
 
   if (!response.ok || !isFunctionSuccess<T>(json)) {
     const error = readFunctionError(json)
-    return {
+    const failure: AIClientFailure = {
       ok: false,
       errorCode: error.errorCode || `HTTP_${response.status}`,
       errorMessage: error.errorMessage || 'سرویس هوش مصنوعی پاسخ معتبر برنگرداند.',
       validationErrors: error.validationErrors,
+      providerStatus: error.providerStatus,
+      providerStatusText: error.providerStatusText,
+      providerErrorStatus: error.providerErrorStatus,
+      providerErrorMessage: error.providerErrorMessage,
+      modelUsed: error.modelUsed,
     }
+
+    logProviderDiagnostic(failure)
+
+    return failure
   }
 
   return {
@@ -141,10 +160,29 @@ function readFunctionError(value: unknown): FunctionErrorResponse {
     validationErrors: Array.isArray(value.validationErrors)
       ? value.validationErrors.filter((item): item is string => typeof item === 'string')
       : undefined,
+    providerStatus: typeof value.providerStatus === 'number' ? value.providerStatus : undefined,
+    providerStatusText: typeof value.providerStatusText === 'string' ? value.providerStatusText : undefined,
+    providerErrorStatus: typeof value.providerErrorStatus === 'string' ? value.providerErrorStatus : undefined,
+    providerErrorMessage: typeof value.providerErrorMessage === 'string' ? value.providerErrorMessage : undefined,
+    modelUsed: typeof value.modelUsed === 'string' ? value.modelUsed : undefined,
   }
+}
+
+function logProviderDiagnostic(error: AIClientFailure) {
+  if (typeof error.providerStatus !== 'number') return
+
+  console.warn('Gemini provider diagnostic', {
+    ok: false,
+    errorCode: error.errorCode,
+    errorMessage: error.errorMessage,
+    providerStatus: error.providerStatus,
+    providerStatusText: error.providerStatusText,
+    providerErrorStatus: error.providerErrorStatus,
+    providerErrorMessage: error.providerErrorMessage,
+    modelUsed: error.modelUsed,
+  })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
-
