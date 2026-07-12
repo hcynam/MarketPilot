@@ -11,6 +11,10 @@ Final plan generation is baseline-first:
 5. The merged 17-section response is checked against the existing final response validator and a separate quality gate for filler, repetition, grounding, completeness, Persian priorities, and operational depth.
 6. A failed validation or quality gate permits one patch-only repair retry. A second failure returns the deterministic baseline with `planSource: internal-fallback`.
 
+Patch parsing accepts an unwrapped object or recursively unwraps common provider wrappers (`patch`, `aiPatch`, `enhancementPatch`, `marketingPatch`, `data`, `result`, and `output`). Full-plan-shaped responses are converted into candidate patch areas where possible. Each of 13 high-value areas is scored independently; a safe partial patch enriches only accepted areas while baseline content remains authoritative elsewhere. Complete and partial sources are reported as `ai-enhanced` and `ai-partially-enhanced` respectively.
+
+Rejection diagnostics are never empty. They identify parse stage, raw and patch top-level keys, patch type, baseline and clarification availability, repair status, accepted areas, validation issues, and quality issues without logging credentials or a full provider response.
+
 The Function continues returning `AIFinalMarketingPlanResponse`, so the existing adapter, renderer, KPI dashboard, and all exports remain compatible. Metadata (`planSource`, `provider`, `modelUsed`, and safe `qualityIssues`) is outside the renderable plan and can be ignored safely.
 
 > Historical Gemini and OpenRouter production notes below are deprecated. The current runtime provider is Groq.

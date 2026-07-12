@@ -5,6 +5,8 @@ import type {
 import type { MarketingPlan } from '../types'
 
 type MarketingAiMode = 'questions' | 'plan'
+type PlanSource = 'ai-enhanced' | 'ai-partially-enhanced' | 'internal-fallback'
+type PatchParseStage = 'provider_response' | 'json_parse' | 'unwrap' | 'patch_validation' | 'patch_quality' | 'merge_quality'
 
 interface FunctionErrorResponse {
   ok: false
@@ -24,17 +26,37 @@ interface FunctionErrorResponse {
   receivedTopLevelKeys?: string[]
   patchTopLevelKeys?: string[]
   qualityIssues?: string[]
-  planSource?: 'ai-enhanced' | 'internal-fallback'
+  planSource?: PlanSource
+  parseStage?: PatchParseStage
+  rawTopLevelKeys?: string[]
+  patchType?: string
+  acceptedPatchAreas?: string[]
+  patchQualityScore?: number
+  hasBaselinePlan?: boolean
+  hasClarifyingAnswers?: boolean
+  attemptedRepair?: boolean
+  rawPreview?: string
 }
 
 interface FunctionSuccessResponse<T> {
   ok: true
   mode: MarketingAiMode
   data: T
-  planSource?: 'ai-enhanced' | 'internal-fallback'
+  planSource?: PlanSource
   provider?: string
   modelUsed?: string
   qualityIssues?: string[]
+  validationIssues?: string[]
+  parseStage?: PatchParseStage
+  rawTopLevelKeys?: string[]
+  patchTopLevelKeys?: string[]
+  patchType?: string
+  acceptedPatchAreas?: string[]
+  patchQualityScore?: number
+  hasBaselinePlan?: boolean
+  hasClarifyingAnswers?: boolean
+  attemptedRepair?: boolean
+  errorCode?: string
 }
 
 export interface AIClientFailure {
@@ -54,16 +76,36 @@ export interface AIClientFailure {
   receivedTopLevelKeys?: string[]
   patchTopLevelKeys?: string[]
   qualityIssues?: string[]
-  planSource?: 'ai-enhanced' | 'internal-fallback'
+  planSource?: PlanSource
+  parseStage?: PatchParseStage
+  rawTopLevelKeys?: string[]
+  patchType?: string
+  acceptedPatchAreas?: string[]
+  patchQualityScore?: number
+  hasBaselinePlan?: boolean
+  hasClarifyingAnswers?: boolean
+  attemptedRepair?: boolean
+  rawPreview?: string
 }
 
 export interface AIClientSuccess<T> {
   ok: true
   data: T
-  planSource?: 'ai-enhanced' | 'internal-fallback'
+  planSource?: PlanSource
   provider?: string
   modelUsed?: string
   qualityIssues?: string[]
+  validationIssues?: string[]
+  parseStage?: PatchParseStage
+  rawTopLevelKeys?: string[]
+  patchTopLevelKeys?: string[]
+  patchType?: string
+  acceptedPatchAreas?: string[]
+  patchQualityScore?: number
+  hasBaselinePlan?: boolean
+  hasClarifyingAnswers?: boolean
+  attemptedRepair?: boolean
+  errorCode?: string
 }
 
 export type AIClientResult<T> = AIClientSuccess<T> | AIClientFailure
@@ -154,6 +196,15 @@ async function postMarketingAI<T>(payload: Record<string, unknown>): Promise<AIC
       patchTopLevelKeys: error.patchTopLevelKeys,
       qualityIssues: error.qualityIssues,
       planSource: error.planSource,
+      parseStage: error.parseStage,
+      rawTopLevelKeys: error.rawTopLevelKeys,
+      patchType: error.patchType,
+      acceptedPatchAreas: error.acceptedPatchAreas,
+      patchQualityScore: error.patchQualityScore,
+      hasBaselinePlan: error.hasBaselinePlan,
+      hasClarifyingAnswers: error.hasClarifyingAnswers,
+      attemptedRepair: error.attemptedRepair,
+      rawPreview: error.rawPreview,
     }
 
     logProviderDiagnostic(failure)
@@ -168,6 +219,17 @@ async function postMarketingAI<T>(payload: Record<string, unknown>): Promise<AIC
     provider: json.provider,
     modelUsed: json.modelUsed,
     qualityIssues: json.qualityIssues,
+    validationIssues: json.validationIssues,
+    parseStage: json.parseStage,
+    rawTopLevelKeys: json.rawTopLevelKeys,
+    patchTopLevelKeys: json.patchTopLevelKeys,
+    patchType: json.patchType,
+    acceptedPatchAreas: json.acceptedPatchAreas,
+    patchQualityScore: json.patchQualityScore,
+    hasBaselinePlan: json.hasBaselinePlan,
+    hasClarifyingAnswers: json.hasClarifyingAnswers,
+    attemptedRepair: json.attemptedRepair,
+    errorCode: json.errorCode,
   }
 }
 
@@ -211,7 +273,16 @@ function readFunctionError(value: unknown): FunctionErrorResponse {
     receivedTopLevelKeys: readStringArray(value.receivedTopLevelKeys),
     patchTopLevelKeys: readStringArray(value.patchTopLevelKeys),
     qualityIssues: readStringArray(value.qualityIssues),
-    planSource: value.planSource === 'ai-enhanced' || value.planSource === 'internal-fallback' ? value.planSource : undefined,
+    planSource: readPlanSource(value.planSource),
+    parseStage: readParseStage(value.parseStage),
+    rawTopLevelKeys: readStringArray(value.rawTopLevelKeys),
+    patchType: typeof value.patchType === 'string' ? value.patchType : undefined,
+    acceptedPatchAreas: readStringArray(value.acceptedPatchAreas),
+    patchQualityScore: typeof value.patchQualityScore === 'number' ? value.patchQualityScore : undefined,
+    hasBaselinePlan: typeof value.hasBaselinePlan === 'boolean' ? value.hasBaselinePlan : undefined,
+    hasClarifyingAnswers: typeof value.hasClarifyingAnswers === 'boolean' ? value.hasClarifyingAnswers : undefined,
+    attemptedRepair: typeof value.attemptedRepair === 'boolean' ? value.attemptedRepair : undefined,
+    rawPreview: typeof value.rawPreview === 'string' ? value.rawPreview : undefined,
   }
 }
 
@@ -247,6 +318,16 @@ function logProviderDiagnostic(error: AIClientFailure) {
 
 function readStringArray(value: unknown): string[] | undefined {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : undefined
+}
+
+function readPlanSource(value: unknown): PlanSource | undefined {
+  return value === 'ai-enhanced' || value === 'ai-partially-enhanced' || value === 'internal-fallback' ? value : undefined
+}
+
+function readParseStage(value: unknown): PatchParseStage | undefined {
+  return value === 'provider_response' || value === 'json_parse' || value === 'unwrap'
+    || value === 'patch_validation' || value === 'patch_quality' || value === 'merge_quality'
+    ? value : undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

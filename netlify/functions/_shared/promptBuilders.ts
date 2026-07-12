@@ -12,6 +12,7 @@ export interface BuildFinalMarketingPlanPromptArgs {
   clarifyingAnswers?: PromptValue
   baselinePlan: BaselineMarketingPlan
   repairIssues?: string[]
+  invalidPatch?: unknown
   contextNotes?: string[]
 }
 
@@ -91,7 +92,12 @@ REQUIREMENTS
 - All seven 7P elements and all four funnel stages must appear exactly once.
 - Risks must include concrete validation tests.
 - Output only one JSON object. No markdown, code fences, or prose outside JSON.
+- Return EXACTLY one object whose top-level keys are: summaryInsight, segments, primaryTarget, positioningStatement, personas, usp, competitors, marketingMix7P, funnel, digitalChannels, pricingRecommendation, kpis, thirtyDayPlan, risks, qualityRationale.
+- Do NOT wrap the object inside patch, data, result, output, response, plan, or any other key.
+- Do NOT return an array.
+- Use the user's clarifying answers explicitly in primaryTarget, digitalChannels, KPIs, thirtyDayPlan, and pricing or trust strategy where relevant.
 ${args.repairIssues?.length ? `- Repair all of these prior quality issues:\n${list(args.repairIssues)}` : ''}
+${args.invalidPatch !== undefined ? `\nINVALID PATCH TO REPAIR\n${serialize(args.invalidPatch)}\nKeep the same patch schema. Fix only invalid, missing, or generic areas and return the unwrapped JSON object.` : ''}
 
 EXACT PATCH JSON SHAPE
 {
@@ -119,7 +125,7 @@ ${list(args.contextNotes)}
 `.trim()
 }
 
-function serialize(value: PromptValue): string {
+function serialize(value: unknown): string {
   try { return JSON.stringify(value ?? {}, null, 2) } catch { return '{}' }
 }
 

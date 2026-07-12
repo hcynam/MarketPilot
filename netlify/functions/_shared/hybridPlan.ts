@@ -44,6 +44,25 @@ export interface AIEnhancementPatch {
   qualityRationale: string
 }
 
+export type PatchParseStage = 'provider_response' | 'json_parse' | 'unwrap' | 'patch_validation' | 'patch_quality' | 'merge_quality'
+
+export interface PreparedEnhancementPatch {
+  patch: AIEnhancementPatch | null
+  parseStage: PatchParseStage
+  rawTopLevelKeys: string[]
+  patchTopLevelKeys: string[]
+  patchType: string
+  validationIssues: string[]
+  rawPreview?: string
+}
+
+export interface PatchAssessment {
+  acceptedPatchAreas: string[]
+  patchQualityScore: number
+  validationIssues: string[]
+  usable: boolean
+}
+
 const priorities = new Set<PersianPriority>(['بالا', 'متوسط', 'پایین'])
 const sevenP = ['Product', 'Price', 'Place', 'Promotion', 'People', 'Process', 'Physical Evidence']
 const funnelStages = ['Awareness', 'Consideration', 'Conversion', 'Retention']
@@ -54,6 +73,79 @@ const fillerPatterns = [
   'استفاده از شبکه‌های اجتماعی',
   'تولید محتوای باکیفیت',
 ]
+const wrapperKeys = ['patch', 'aiPatch', 'enhancementPatch', 'marketingPatch', 'data', 'result', 'output']
+export const highValuePatchAreas = [
+  'segments', 'primaryTarget', 'positioningStatement', 'personas', 'usp', 'competitors',
+  'marketingMix7P', 'funnel', 'digitalChannels', 'pricingRecommendation', 'kpis',
+  'thirtyDayPlan', 'risks',
+] as const
+
+export function prepareEnhancementPatch(value: unknown): PreparedEnhancementPatch {
+  const rawTopLevelKeys = isRecord(value) ? Object.keys(value).slice(0, 30) : []
+  const rawPreview = sanitizedPreview(value)
+  if (Array.isArray(value)) {
+    return { patch: null, parseStage: 'unwrap', rawTopLevelKeys, patchTopLevelKeys: [], patchType: 'array', validationIssues: ['AI returned an array instead of patch object'], rawPreview }
+  }
+  if (!isRecord(value)) {
+    return { patch: null, parseStage: 'unwrap', rawTopLevelKeys, patchTopLevelKeys: [], patchType: value === null ? 'null' : typeof value, validationIssues: [`AI patch must be an object; received ${value === null ? 'null' : typeof value}`], rawPreview }
+  }
+
+  let current: unknown = value
+  const seen = new Set<unknown>()
+  for (let depth = 0; depth < 8 && isRecord(current) && !seen.has(current); depth += 1) {
+    seen.add(current)
+    if (looksLikeFullPlan(current) && Array.isArray(current.sections)) {
+      current = extractPatchFromFullPlan(current)
+      break
+    }
+    if (looksLikePatch(current)) break
+    const wrapper = wrapperKeys.find((key) => key in current)
+    if (!wrapper) break
+    current = current[wrapper]
+  }
+  if (isRecord(current) && !looksLikePatch(current) && looksLikeFullPlan(current)) {
+    current = extractPatchFromFullPlan(current)
+  }
+  if (isRecord(current) && !looksLikePatch(current)) {
+    const nested = wrapperKeys.map((key) => current[key]).find((item) => isRecord(item) && looksLikeFullPlan(item))
+    if (isRecord(nested)) current = extractPatchFromFullPlan(nested)
+  }
+  if (Array.isArray(current)) {
+    return { patch: null, parseStage: 'unwrap', rawTopLevelKeys, patchTopLevelKeys: [], patchType: 'array', validationIssues: ['AI returned an array instead of patch object'], rawPreview }
+  }
+  if (!isRecord(current)) {
+    return { patch: null, parseStage: 'unwrap', rawTopLevelKeys, patchTopLevelKeys: [], patchType: current === null ? 'null' : typeof current, validationIssues: ['AI patch could not be unwrapped to an object'], rawPreview }
+  }
+  const patchTopLevelKeys = Object.keys(current).slice(0, 30)
+  if (patchTopLevelKeys.length === 0) {
+    return { patch: null, parseStage: 'unwrap', rawTopLevelKeys, patchTopLevelKeys, patchType: 'object', validationIssues: ['AI patch object is empty after parsing/unwrapping'], rawPreview }
+  }
+  const normalized = normalizeEnhancementPatch(current)
+  if (!isEnhancementPatch(normalized)) {
+    return { patch: null, parseStage: 'patch_validation', rawTopLevelKeys, patchTopLevelKeys, patchType: 'object', validationIssues: ['AI patch normalization did not produce an object'], rawPreview }
+  }
+  return { patch: normalized, parseStage: 'patch_validation', rawTopLevelKeys, patchTopLevelKeys, patchType: 'object', validationIssues: [], rawPreview }
+}
+
+export function assessEnhancementPatch(patch: AIEnhancementPatch): PatchAssessment {
+  const acceptedPatchAreas = getAcceptedPatchAreas(patch)
+  const strictIssues = validateEnhancementPatch(patch).errors
+  const blockingQualityIssues = strictIssues.filter((issue) =>
+    issue.includes('repeated filler') || issue.includes('repeats the same') || issue.includes('Priority labels'),
+  )
+  const requiredForSafePartial = ['segments', 'thirtyDayPlan', 'risks']
+  const missingCore = requiredForSafePartial.filter((area) => !acceptedPatchAreas.includes(area))
+  const validationIssues = [
+    ...strictIssues,
+    ...missingCore.map((area) => `Partial patch is missing required quality area: ${area}.`),
+  ]
+  return {
+    acceptedPatchAreas,
+    patchQualityScore: Math.round((acceptedPatchAreas.length / highValuePatchAreas.length) * 100),
+    validationIssues: unique(validationIssues),
+    usable: acceptedPatchAreas.length >= 4 && missingCore.length === 0 && blockingQualityIssues.length === 0,
+  }
+}
 
 export function normalizeEnhancementPatch(value: unknown): unknown {
   if (!isRecord(value)) return value
@@ -137,27 +229,29 @@ export function mergeBaselineWithAIPatch(
   patch: AIEnhancementPatch,
   businessInput: Record<string, unknown>,
   clarifyingAnswers: Record<string, unknown>,
+  acceptedAreas: string[] = [...highValuePatchAreas],
 ): AIFinalMarketingPlanResponse {
+  const accepted = new Set(acceptedAreas)
   const businessName = clean(businessInput.businessName) || 'کسب‌وکار'
   const choose = (candidate: string, fallback: string) => isUseful(candidate) ? candidate : fallback
   const sections: AIPlanSection[] = [
     section(1, choose(patch.summaryInsight, baseline.businessSummary), 'paragraph'),
     section(2, baseline.customerDevelopmentStage, 'paragraph'),
-    section(3, patch.segments.length >= 3 ? patch.segments.map((x) => `${x.name}: مسئله: ${x.problem}؛ مسیر دسترسی: ${x.accessChannel}؛ توان پرداخت: ${x.willingnessToPay}؛ اولویت: ${x.priority}`) : baseline.marketSegments, 'cards'),
-    section(4, patch.primaryTarget ? `${patch.primaryTarget.name}: ${patch.primaryTarget.reason}؛ ${patch.primaryTarget.whyNow}` : baseline.targetMarket, 'paragraph'),
-    section(5, choose(patch.positioningStatement, baseline.positioningStatement), 'paragraph'),
-    section(6, patch.personas.length >= 2 ? patch.personas.map((x) => `${x.name}\n• نقش: ${x.role}\n• درد: ${x.pain}\n• محرک: ${x.trigger}\n• اعتراض: ${x.objection}\n• پیام: ${x.message}`) : baseline.customerPersonas, 'cards'),
+    section(3, accepted.has('segments') ? patch.segments.map((x) => `${x.name}: مسئله: ${x.problem}؛ مسیر دسترسی: ${x.accessChannel}؛ توان پرداخت: ${x.willingnessToPay}؛ اولویت: ${x.priority}`) : baseline.marketSegments, 'cards'),
+    section(4, accepted.has('primaryTarget') ? `${patch.primaryTarget.name}: ${patch.primaryTarget.reason}؛ ${patch.primaryTarget.whyNow}` : baseline.targetMarket, 'paragraph'),
+    section(5, accepted.has('positioningStatement') ? patch.positioningStatement : baseline.positioningStatement, 'paragraph'),
+    section(6, accepted.has('personas') ? patch.personas.map((x) => `${x.name}\n• نقش: ${x.role}\n• درد: ${x.pain}\n• محرک: ${x.trigger}\n• اعتراض: ${x.objection}\n• پیام: ${x.message}`) : baseline.customerPersonas, 'cards'),
     section(7, baseline.valueProposition, 'paragraph'),
-    section(8, choose(patch.usp, baseline.usp), 'paragraph'),
-    section(9, patch.competitors.length >= 3 ? patch.competitors.map((x) => `${x.name}: نوع: ${x.type}؛ قوت: ${x.strength}؛ ضعف: ${x.weakness}؛ تمایز پیشنهادی: ${x.howToDifferentiate}`) : baseline.competitorAnalysis, 'cards'),
-    section(10, patch.marketingMix7P.length === 7 ? Object.fromEntries(patch.marketingMix7P.map((x) => [x.element, `${x.recommendation}؛ دلیل: ${x.reason}`])) : baseline.marketingMix7p, 'table'),
-    section(11, patch.funnel.length === 4 ? patch.funnel.map((x) => `${x.stage}: اقدام: ${x.action}؛ کانال: ${x.channel}؛ معیار: ${x.metric}`) : baseline.funnelJourney, 'list'),
-    section(12, patch.digitalChannels.length >= 3 ? patch.digitalChannels.map((x) => `${x.channel}: اولویت ${x.priority}؛ دلیل: ${x.reason}؛ آزمایش نخست: ${x.firstExperiment}`) : baseline.channelStrategy, 'list'),
-    section(13, patch.pricingRecommendation ? `${patch.pricingRecommendation.recommendedModel}: ${patch.pricingRecommendation.reason}؛ پیشنهاد آغازین: ${patch.pricingRecommendation.introOffer}؛ ریسک: ${patch.pricingRecommendation.risk}` : baseline.pricingRecommendation, 'paragraph'),
-    section(14, patch.kpis, 'kpi'),
-    section(15, patch.thirtyDayPlan, 'actionPlan'),
-    section(16, patch.risks, 'list'),
-    section(17, patch.qualityRationale, 'score'),
+    section(8, accepted.has('usp') ? patch.usp : baseline.usp, 'paragraph'),
+    section(9, accepted.has('competitors') ? patch.competitors.map((x) => `${x.name}: نوع: ${x.type}؛ قوت: ${x.strength}؛ ضعف: ${x.weakness}؛ تمایز پیشنهادی: ${x.howToDifferentiate}`) : baseline.competitorAnalysis, 'cards'),
+    section(10, accepted.has('marketingMix7P') ? Object.fromEntries(patch.marketingMix7P.map((x) => [x.element, `${x.recommendation}؛ دلیل: ${x.reason}`])) : baseline.marketingMix7p, 'table'),
+    section(11, accepted.has('funnel') ? patch.funnel.map((x) => `${x.stage}: اقدام: ${x.action}؛ کانال: ${x.channel}؛ معیار: ${x.metric}`) : baseline.funnelJourney, 'list'),
+    section(12, accepted.has('digitalChannels') ? patch.digitalChannels.map((x) => `${x.channel}: اولویت ${x.priority}؛ دلیل: ${x.reason}؛ آزمایش نخست: ${x.firstExperiment}`) : baseline.channelStrategy, 'list'),
+    section(13, accepted.has('pricingRecommendation') ? `${patch.pricingRecommendation.recommendedModel}: ${patch.pricingRecommendation.reason}؛ پیشنهاد آغازین: ${patch.pricingRecommendation.introOffer}؛ ریسک: ${patch.pricingRecommendation.risk}` : baseline.pricingRecommendation, 'paragraph'),
+    section(14, accepted.has('kpis') ? patch.kpis : baseline.kpiDashboard, 'kpi'),
+    section(15, accepted.has('thirtyDayPlan') ? patch.thirtyDayPlan : baseline.actionPlan, 'actionPlan'),
+    section(16, accepted.has('risks') ? patch.risks : baseline.risksAssumptions, 'list'),
+    section(17, choose(patch.qualityRationale, baseline.qualityScore.details.join('؛ ')), 'score'),
   ]
   const answerNotes = Object.values(clarifyingAnswers).flatMap((value) => Array.isArray(value) ? value : [value]).map(clean).filter(Boolean)
 
@@ -168,14 +262,14 @@ export function mergeBaselineWithAIPatch(
     inputQualityDiagnosis: choose(patch.summaryInsight, 'برنامه بر خط مبنای داخلی معتبر و داده‌های ورودی استوار است.'),
     assumptions: answerNotes.slice(0, 4),
     sections,
-    kpis: patch.kpis.map((x) => ({
+    kpis: accepted.has('kpis') ? patch.kpis.map((x) => ({
       name: x.name, reason: x.whyItMatters, formula: x.measurement, target: x.target,
       channel: `کانال ${x.channel}`, reviewFrequency: 'هفتگی', riskOrCaution: 'هدف پس از مشاهده خط مبنا بازبینی شود.',
-    })),
-    actionPlan30Days: patch.thirtyDayPlan.map((x, index) => ({
+    })) : baselineToFinalResponse(baseline, businessInput).kpis,
+    actionPlan30Days: accepted.has('thirtyDayPlan') ? patch.thirtyDayPlan.map((x, index) => ({
       week: index + 1, focus: x.week, actions: x.actions, successMetric: x.successMetric,
-    })),
-    risks: patch.risks.map((x) => `${x.risk}؛ فرض: ${x.assumption}؛ آزمون اعتبارسنجی: ${x.validationTest}`),
+    })) : baselineToFinalResponse(baseline, businessInput).actionPlan30Days,
+    risks: accepted.has('risks') ? patch.risks.map((x) => `${x.risk}؛ فرض: ${x.assumption}؛ آزمون اعتبارسنجی: ${x.validationTest}`) : baseline.risksAssumptions,
     qualityScore: {
       score: Math.max(70, Math.min(95, baseline.qualityScore.score + 8)),
       strengths: ['ترکیب خط مبنای قطعی با تحلیل راهبردی اختصاصی'],
@@ -205,8 +299,11 @@ export function baselineToFinalResponse(
     [17, baseline.qualityScore, 'score'],
   ]
   const kpis = baseline.kpiDashboard.slice(0, Math.max(3, baseline.kpiDashboard.length)).map((item) => ({
-    name: item.metric, reason: item.interpretation, formula: item.benchmark,
-    target: item.value, channel: 'کانال‌های منتخب برنامه', reviewFrequency: 'هفتگی',
+    name: meaningful(item.metric, 2, 'شاخص'),
+    reason: meaningful(item.interpretation, 5, 'دلیل سنجش خط مبنای داخلی'),
+    formula: meaningful(item.benchmark, 5, 'روش سنجش: ثبت هفتگی'),
+    target: meaningful(item.value, 5, 'هدف: تعیین خط مبنا'),
+    channel: 'کانال‌های منتخب برنامه', reviewFrequency: 'هفتگی',
     riskOrCaution: 'هدف با داده واقعی بازبینی شود.',
   }))
   while (kpis.length < 3) {
@@ -236,8 +333,13 @@ export function evaluateHybridQuality(
   plan: AIFinalMarketingPlanResponse,
   patch: AIEnhancementPatch,
   businessInput: Record<string, unknown>,
+  acceptedAreas: string[] = [...highValuePatchAreas],
+  clarifyingAnswers: Record<string, unknown> = {},
 ): string[] {
-  const issues = validateEnhancementPatch(patch).errors
+  const issues: string[] = []
+  for (const requiredArea of ['segments', 'thirtyDayPlan', 'risks']) {
+    if (!acceptedAreas.includes(requiredArea)) issues.push(`Patch quality requires usable ${requiredArea}.`)
+  }
   const content = JSON.stringify(plan)
   const patchContent = JSON.stringify(patch)
   for (const pattern of fillerPatterns) {
@@ -255,10 +357,108 @@ export function evaluateHybridQuality(
   if (groundingValues.length > 0 && !groundingValues.some((value) => patchContent.includes(value))) {
     issues.push('No direct grounding in supplied product, customer, differentiation, price, or budget details.')
   }
+  const answerValues = Object.values(clarifyingAnswers)
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .map(clean)
+    .filter((value) => value.length >= 2)
+  if (answerValues.length > 0 && !answerValues.some((value) => patchContent.includes(value))) {
+    issues.push('Patch does not explicitly use any clarifying answer in its strategic recommendations.')
+  }
   if (plan.sections.some((item) => JSON.stringify(item.content).replace(/[{}\[\]"\s,:]/g, '').length < 20)) {
     issues.push('One or more final sections are too short.')
   }
   return unique(issues)
+}
+
+function getAcceptedPatchAreas(patch: AIEnhancementPatch): string[] {
+  const accepted: string[] = []
+  if (recordAreaValid(patch.segments, 3, ['name', 'problem', 'accessChannel', 'willingnessToPay', 'priority'])) accepted.push('segments')
+  if (objectAreaValid(patch.primaryTarget, ['name', 'reason', 'whyNow'])) accepted.push('primaryTarget')
+  if (isUseful(patch.positioningStatement)) accepted.push('positioningStatement')
+  if (recordAreaValid(patch.personas, 2, ['name', 'role', 'pain', 'trigger', 'objection', 'message'])) accepted.push('personas')
+  if (isUseful(patch.usp)) accepted.push('usp')
+  if (recordAreaValid(patch.competitors, 3, ['name', 'type', 'strength', 'weakness', 'howToDifferentiate'])) accepted.push('competitors')
+  if (recordAreaValid(patch.marketingMix7P, 7, ['element', 'recommendation', 'reason']) && hasCoverage(patch.marketingMix7P, 'element', sevenP)) accepted.push('marketingMix7P')
+  if (recordAreaValid(patch.funnel, 4, ['stage', 'action', 'channel', 'metric']) && hasCoverage(patch.funnel, 'stage', funnelStages)) accepted.push('funnel')
+  if (recordAreaValid(patch.digitalChannels, 3, ['channel', 'priority', 'reason', 'firstExperiment'])) accepted.push('digitalChannels')
+  if (objectAreaValid(patch.pricingRecommendation, ['recommendedModel', 'reason', 'introOffer', 'risk'])) accepted.push('pricingRecommendation')
+  if (recordAreaValid(patch.kpis, 3, ['name', 'target', 'measurement', 'whyItMatters', 'channel'])) accepted.push('kpis')
+  if (recordAreaValid(patch.thirtyDayPlan, 4, ['week', 'successMetric']) && patch.thirtyDayPlan.every((item) => item.actions.length >= 2 && item.actions.every(isUseful))) accepted.push('thirtyDayPlan')
+  if (recordAreaValid(patch.risks, 2, ['risk', 'assumption', 'validationTest'])) accepted.push('risks')
+  return accepted
+}
+
+function recordAreaValid(items: Array<Record<string, unknown>>, minimum: number, keys: string[]): boolean {
+  return items.length >= minimum && items.every((item) => keys.every((key) => {
+    const value = clean(item[key])
+    return ['name', 'element', 'stage', 'week', 'priority', 'channel', 'type', 'role'].includes(key)
+      ? value.length >= 2
+      : isUseful(value)
+  }))
+}
+
+function objectAreaValid(item: Record<string, unknown>, keys: string[]): boolean {
+  return keys.every((key) => isUseful(clean(item[key])))
+}
+
+function hasCoverage(items: Array<Record<string, unknown>>, key: string, required: string[]): boolean {
+  const names = new Set(items.map((item) => clean(item[key]).toLowerCase()))
+  return required.every((name) => names.has(name.toLowerCase()))
+}
+
+function looksLikePatch(value: Record<string, unknown>): boolean {
+  return highValuePatchAreas.some((key) => key in value) || 'summaryInsight' in value || 'qualityRationale' in value
+}
+
+function looksLikeFullPlan(value: Record<string, unknown>): boolean {
+  return Array.isArray(value.sections) || ('businessName' in value && ('kpis' in value || 'actionPlan30Days' in value))
+}
+
+function extractPatchFromFullPlan(value: Record<string, unknown>): Record<string, unknown> {
+  const sections = records(value.sections)
+  const byId = new Map(sections.map((item) => [Number(item.id), item.content]))
+  return {
+    summaryInsight: value.inputQualityDiagnosis ?? byId.get(1) ?? '',
+    segments: byId.get(3) ?? value.segments ?? [],
+    primaryTarget: value.primaryTarget ?? byId.get(4) ?? {},
+    positioningStatement: value.positioningStatement ?? byId.get(5) ?? '',
+    personas: value.personas ?? byId.get(6) ?? [],
+    usp: value.usp ?? byId.get(8) ?? '',
+    competitors: value.competitors ?? byId.get(9) ?? [],
+    marketingMix7P: value.marketingMix7P ?? byId.get(10) ?? [],
+    funnel: value.funnel ?? byId.get(11) ?? [],
+    digitalChannels: value.digitalChannels ?? byId.get(12) ?? [],
+    pricingRecommendation: value.pricingRecommendation ?? byId.get(13) ?? {},
+    kpis: value.kpis ?? [],
+    thirtyDayPlan: value.thirtyDayPlan ?? value.actionPlan30Days ?? [],
+    risks: value.patchRisks ?? value.risks ?? [],
+    qualityRationale: value.qualityRationale ?? (isRecord(value.qualityScore) ? value.qualityScore.improvementSuggestions : '') ?? '',
+  }
+}
+
+function sanitizedPreview(value: unknown): string | undefined {
+  try {
+    const serialized = JSON.stringify(value)
+    if (!serialized) return undefined
+    return serialized.replace(/gsk_[A-Za-z0-9_-]+|sk-or-[A-Za-z0-9_-]+|AIza[A-Za-z0-9_-]+/g, '[REDACTED]').slice(0, 400)
+  } catch {
+    return undefined
+  }
+}
+
+function isEnhancementPatch(value: unknown): value is AIEnhancementPatch {
+  return isRecord(value)
+    && Array.isArray(value.segments)
+    && isRecord(value.primaryTarget)
+    && Array.isArray(value.personas)
+    && Array.isArray(value.competitors)
+    && Array.isArray(value.marketingMix7P)
+    && Array.isArray(value.funnel)
+    && Array.isArray(value.digitalChannels)
+    && isRecord(value.pricingRecommendation)
+    && Array.isArray(value.kpis)
+    && Array.isArray(value.thirtyDayPlan)
+    && Array.isArray(value.risks)
 }
 
 function section(id: number, content: unknown, contentType: AIPlanSection['contentType']): AIPlanSection {
@@ -329,6 +529,11 @@ function strings(value: unknown): string[] {
 
 function clean(value: unknown): string {
   return typeof value === 'string' ? value.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() : value == null ? '' : String(value).trim()
+}
+
+function meaningful(value: unknown, minimum: number, fallback: string): string {
+  const normalized = clean(value)
+  return normalized.length >= minimum ? normalized : normalized ? `${fallback} ${normalized}` : fallback
 }
 
 function occurrences(value: string, needle: string): number {

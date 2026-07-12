@@ -1244,3 +1244,12 @@ Created `CHECKPOINT_PHASE4_BEFORE_FIX.md` capturing current project status, comp
 - Added one patch-only quality repair retry and baseline preservation with `planSource: internal-fallback` when the patch remains weak.
 - Improved clarification prompts with decision tradeoffs, Persian labels/priorities, and a 3-required/1-optional limit.
 - Added `docs/AI_HYBRID_QA_CHECKLIST.md` covering SaaS, local cafe, online course, vague input, and small-budget consulting scenarios.
+## Groq Patch Rejection and Partial Enhancement Fix - 2026-07-12
+
+**Status:** Complete
+
+- Fixed the empty `AI_PATCH_REJECTED` metadata path by preserving non-empty validation/quality issues and full safe diagnostics in successful baseline responses and the frontend client.
+- Added recursive wrapper unwrapping, array/null/string/empty-object diagnostics, sanitized 400-character previews, and best-effort extraction from full-plan-shaped responses.
+- Replaced all-or-nothing patch acceptance with independent scoring across 13 high-value areas; safe partial patches merge accepted areas and preserve baseline content elsewhere.
+- Repair retry now receives the invalid patch, exact issues, and schema; patch quality also requires explicit grounding in clarifying answers when provided.
+- Added distinct user messaging for `ai-enhanced`, `ai-partially-enhanced`, and `internal-fallback` results.

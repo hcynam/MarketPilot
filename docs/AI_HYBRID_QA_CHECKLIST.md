@@ -50,3 +50,12 @@ For every scenario, verify:
 - Patch validation failures: `AI validation diagnostic` with safe issue summaries and top-level keys.
 - Quality rejection: `AI patch quality diagnostic` with `validationIssues`, `qualityIssues`, `patchTopLevelKeys`, and `planSource`.
 - Never expect API keys, Authorization headers, or full raw provider bodies in logs.
+
+## Patch rejection and partial-enhancement checks
+
+- Verify direct patches and wrappers under `patch`, `aiPatch`, `enhancementPatch`, `marketingPatch`, `data`, `result`, or `output` are unwrapped recursively.
+- Verify an array response reports `AI returned an array instead of patch object`.
+- Verify an empty object reports `AI patch object is empty after parsing/unwrapping`.
+- Verify every `AI_PATCH_REJECTED` has at least one non-empty validation or quality issue plus parse stage, patch type, top-level keys, baseline/answer flags, and repair status.
+- Verify a patch with at least four useful high-value areas plus valid segments, weekly actions, and tested risks can produce `ai-partially-enhanced`; missing areas must remain baseline content.
+- In the MarketPilot sample, select explicit target/channel answers and confirm those exact choices appear in the enhanced target, channel, KPI, action, pricing, or trust recommendations.

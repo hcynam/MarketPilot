@@ -32,6 +32,7 @@ type AIStatus =
   | 'fallback'
   | 'error'
   | 'complete'
+  | 'partial_complete'
 
 const validationFallbackMessage =
   'خروجی هوش مصنوعی با قالب موردنیاز سازگار نبود؛ نسخه پایه تولید شد.'
@@ -103,13 +104,20 @@ function App() {
 
       if (result.planSource === 'internal-fallback') {
         console.warn('AI patch quality diagnostic', {
-          errorCode: 'AI_PATCH_REJECTED',
+          errorCode: result.errorCode || 'AI_PATCH_REJECTED',
           provider: result.provider,
           modelUsed: result.modelUsed,
           mode: 'plan',
-          validationIssues: [],
+          parseStage: result.parseStage,
+          patchType: result.patchType,
+          rawTopLevelKeys: result.rawTopLevelKeys ?? [],
+          patchTopLevelKeys: result.patchTopLevelKeys ?? [],
+          validationIssues: result.validationIssues ?? [],
           qualityIssues: result.qualityIssues ?? [],
-          patchTopLevelKeys: [],
+          acceptedPatchAreas: result.acceptedPatchAreas ?? [],
+          hasBaselinePlan: result.hasBaselinePlan,
+          hasClarifyingAnswers: result.hasClarifyingAnswers,
+          attemptedRepair: result.attemptedRepair,
           planSource: result.planSource,
         })
         applyFallback(input, 'AI_PATCH_REJECTED')
@@ -124,7 +132,7 @@ function App() {
       setClarifyingResponse(null)
       setAiErrorMessage('')
       setFallbackMessage('')
-      setAiStatus('complete')
+      setAiStatus(result.planSource === 'ai-partially-enhanced' ? 'partial_complete' : 'complete')
     } catch {
       applyFallback(input, 'AI_PLAN_RENDER_FAILED')
     }
@@ -309,6 +317,8 @@ function getAIStatusMessage(
       return fallbackMessage || fallbackMarketingPlanMessage
     case 'complete':
       return 'برنامه با تحلیل هوشمند Groq تقویت شد.'
+    case 'partial_complete':
+      return 'برنامه با موتور داخلی MarketPilot تولید و با تحلیل هوشمند Groq در بخش‌های کلیدی تقویت شد.'
     case 'error':
       return aiErrorMessage
     default:
