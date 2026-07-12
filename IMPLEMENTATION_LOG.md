@@ -1209,3 +1209,12 @@ Created `CHECKPOINT_PHASE4_BEFORE_FIX.md` capturing current project status, comp
 - Added safe OpenRouter diagnostics and status-specific auth/rate-limit/request error codes without returning credentials or authorization headers.
 - Updated server-only environment setup and marked the previous Gemini production configuration as deprecated.
 - Free OpenRouter models may be rate-limited and are intended for demo/testing.
+## Groq Provider Migration - 2026-07-12
+
+**Status:** Complete
+
+- Replaced OpenRouter/Gemini runtime paths with Groq Chat Completions through dependency-free `fetch`.
+- Set the production default model to `qwen/qwen3-32b` and provider timeout to 18 seconds.
+- Reduced question limits to three required and one optional, and compressed course knowledge and final-plan instructions for concise 17-section JSON within the 2200-token output budget.
+- Preserved the Function route, validators, UI flow, report renderer, exports, and deterministic fallback.
+- Updated safe diagnostics and Netlify environment documentation; only `GROQ_API_KEY` is secret.

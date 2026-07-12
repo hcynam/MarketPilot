@@ -175,7 +175,7 @@ function readFunctionError(value: unknown): FunctionErrorResponse {
 function logProviderDiagnostic(error: AIClientFailure) {
   if (typeof error.providerStatus !== 'number') return
 
-  console.warn('OpenRouter provider diagnostic', {
+  console.warn('Groq provider diagnostic', {
     ok: false,
     errorCode: error.errorCode,
     errorMessage: error.errorMessage,

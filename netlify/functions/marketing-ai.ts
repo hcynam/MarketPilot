@@ -31,17 +31,15 @@ interface FunctionEvent {
   isBase64Encoded?: boolean
 }
 
-const openRouterEndpoint = 'https://openrouter.ai/api/v1/chat/completions'
-const defaultModel = 'openrouter/free'
-const defaultSiteUrl = 'https://visionary-jalebi-345b75.netlify.app'
-const defaultAppName = 'MarketPilot AI'
-const providerTimeoutMs = 25000
+const groqEndpoint = 'https://api.groq.com/openai/v1/chat/completions'
+const defaultModel = 'qwen/qwen3-32b'
+const defaultProviderTimeoutMs = 18000
 const maxRequestBodyChars = 40000
 const maxPromptChars = 30000
 const maxProviderErrorMessageChars = 300
 
-interface OpenRouterProviderDiagnostic {
-  provider: 'openrouter'
+interface GroqProviderDiagnostic {
+  provider: 'groq'
   providerStatus: number
   providerStatusText: string
   providerErrorCode?: string
@@ -50,11 +48,11 @@ interface OpenRouterProviderDiagnostic {
   mode: MarketingAiMode
 }
 
-class OpenRouterProviderError extends Error {
-  diagnostic: OpenRouterProviderDiagnostic
+class GroqProviderError extends Error {
+  diagnostic: GroqProviderDiagnostic
 
-  constructor(diagnostic: OpenRouterProviderDiagnostic) {
-    super('OPENROUTER_PROVIDER_ERROR')
+  constructor(diagnostic: GroqProviderDiagnostic) {
+    super('GROQ_PROVIDER_ERROR')
     this.diagnostic = diagnostic
   }
 }
@@ -107,11 +105,11 @@ export async function handler(event: FunctionEvent) {
     })
   }
 
-  if (!process.env.OPENROUTER_API_KEY) {
+  if (!process.env.GROQ_API_KEY) {
     return jsonResponse(500, {
       ok: false,
       mode: payload.mode,
-      errorCode: 'MISSING_OPENROUTER_API_KEY',
+      errorCode: 'MISSING_GROQ_API_KEY',
       errorMessage: 'AI service is not configured on the server.',
     })
   }
@@ -221,21 +219,26 @@ async function generateAndValidate(args: {
   let responseJson: unknown
 
   try {
-    responseJson = await callOpenRouter(args.prompt, args.mode)
+    responseJson = await callGroq(args.prompt, args.mode)
   } catch (error) {
-    if (isOpenRouterTimeoutError(error)) {
+    if (isGroqTimeoutError(error)) {
+      const diagnosticPayload = {
+        ok: false,
+        mode: args.mode,
+        errorCode: 'GROQ_TIMEOUT',
+        errorMessage: 'AI service timed out. Please try again later.',
+        ...buildLocalProviderDiagnostic(args.mode, 'Timeout'),
+      }
+
+      console.error('Groq provider diagnostic', diagnosticPayload)
+
       return {
         statusCode: 504,
-        payload: {
-          ok: false,
-          mode: args.mode,
-          errorCode: 'OPENROUTER_REQUEST_FAILED',
-          errorMessage: 'AI service timed out. Please try again later.',
-        },
+        payload: diagnosticPayload,
       }
     }
 
-    if (isOpenRouterProviderError(error)) {
+    if (isGroqProviderError(error)) {
       const errorCode = providerErrorCodeForStatus(error.diagnostic.providerStatus)
       const diagnosticPayload = {
         ok: false,
@@ -245,7 +248,7 @@ async function generateAndValidate(args: {
         ...error.diagnostic,
       }
 
-      console.error('OpenRouter provider diagnostic', diagnosticPayload)
+      console.error('Groq provider diagnostic', diagnosticPayload)
 
       return {
         statusCode: error.diagnostic.providerStatus === 429 ? 429 : 502,
@@ -253,27 +256,32 @@ async function generateAndValidate(args: {
       }
     }
 
+    const diagnosticPayload = {
+      ok: false,
+      mode: args.mode,
+      errorCode: 'GROQ_REQUEST_FAILED',
+      errorMessage: 'AI service did not return a usable response. Please try again later.',
+      ...buildLocalProviderDiagnostic(args.mode, 'Network or runtime error'),
+    }
+
+    console.error('Groq provider diagnostic', diagnosticPayload)
+
     return {
       statusCode: 502,
-      payload: {
-        ok: false,
-        mode: args.mode,
-        errorCode: 'OPENROUTER_REQUEST_FAILED',
-        errorMessage: 'AI service did not return a usable response. Please try again later.',
-      },
+      payload: diagnosticPayload,
     }
   }
 
   let text: string
   try {
-    text = extractOpenRouterText(responseJson)
+    text = extractGroqText(responseJson)
   } catch {
     return {
       statusCode: 502,
       payload: {
         ok: false,
         mode: args.mode,
-        errorCode: 'OPENROUTER_REQUEST_FAILED',
+        errorCode: 'GROQ_REQUEST_FAILED',
         errorMessage: 'AI service returned an empty response.',
       },
     }
@@ -317,52 +325,54 @@ async function generateAndValidate(args: {
   }
 }
 
-async function callOpenRouter(prompt: string, mode: MarketingAiMode): Promise<unknown> {
-  const apiKey = process.env.OPENROUTER_API_KEY
+async function callGroq(prompt: string, mode: MarketingAiMode): Promise<unknown> {
+  const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) {
-    throw new Error('Missing OpenRouter API key')
+    throw new Error('Missing Groq API key')
   }
 
-  const model = normalizeOpenRouterModel(process.env.OPENROUTER_MODEL)
+  const model = normalizeGroqModel(process.env.GROQ_MODEL)
+  const configuredTimeoutMs = Number(process.env.AI_PROVIDER_TIMEOUT_MS || defaultProviderTimeoutMs)
+  const providerTimeoutMs = Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
+    ? configuredTimeoutMs
+    : defaultProviderTimeoutMs
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), providerTimeoutMs)
 
   try {
-    const response = await fetch(openRouterEndpoint, {
+    const response = await fetch(groqEndpoint, {
       method: 'POST',
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': process.env.OPENROUTER_SITE_URL || defaultSiteUrl,
-        'X-OpenRouter-Title': process.env.OPENROUTER_APP_NAME || defaultAppName,
       },
       body: JSON.stringify({
         model,
         messages: [
           {
             role: 'system',
-            content: 'You are MarketPilot AI, a Persian-first expert marketing planning assistant. Return valid JSON only.',
+            content: 'You are MarketPilot AI, a Persian-first expert marketing planning assistant. Return valid JSON only. Do not use markdown.',
           },
           {
             role: 'user',
             content: prompt,
           },
         ],
-        temperature: mode === 'questions' ? 0.2 : 0.35,
-        max_tokens: mode === 'questions' ? 1200 : 3500,
+        temperature: mode === 'questions' ? 0.2 : 0.25,
+        max_tokens: mode === 'questions' ? 800 : 2200,
         response_format: { type: 'json_object' },
       }),
     })
 
     if (!response.ok) {
-      throw new OpenRouterProviderError(await buildProviderDiagnostic(response, model, mode))
+      throw new GroqProviderError(await buildProviderDiagnostic(response, model, mode))
     }
 
     return response.json()
   } catch (error) {
     if (isAbortError(error)) {
-      throw new Error('OPENROUTER_TIMEOUT')
+      throw new Error('GROQ_TIMEOUT')
     }
 
     throw error
@@ -371,19 +381,19 @@ async function callOpenRouter(prompt: string, mode: MarketingAiMode): Promise<un
   }
 }
 
-function extractOpenRouterText(responseJson: unknown): string {
+function extractGroqText(responseJson: unknown): string {
   if (!isRecord(responseJson)) {
-    throw new Error('OpenRouter response must be an object')
+    throw new Error('Groq response must be an object')
   }
 
   const choices = responseJson.choices
   if (!Array.isArray(choices) || choices.length === 0) {
-    throw new Error('OpenRouter response has no choices')
+    throw new Error('Groq response has no choices')
   }
 
   const firstChoice = choices[0]
   if (!isRecord(firstChoice) || !isRecord(firstChoice.message)) {
-    throw new Error('OpenRouter choice has no message')
+    throw new Error('Groq choice has no message')
   }
 
   const text = typeof firstChoice.message.content === 'string'
@@ -391,7 +401,7 @@ function extractOpenRouterText(responseJson: unknown): string {
     : ''
 
   if (!text) {
-    throw new Error('OpenRouter response text is empty')
+    throw new Error('Groq response text is empty')
   }
 
   return text
@@ -403,20 +413,33 @@ function readOptionalStringArray(value: unknown): string[] | undefined {
   return strings.length > 0 ? strings : undefined
 }
 
-function normalizeOpenRouterModel(model: string | undefined): string {
+function normalizeGroqModel(model: string | undefined): string {
   const trimmed = (model || '').trim().replace(/^(['"])(.*)\1$/, '$2').trim()
   return trimmed || defaultModel
+}
+
+function buildLocalProviderDiagnostic(
+  mode: MarketingAiMode,
+  providerStatusText: string,
+): GroqProviderDiagnostic {
+  return {
+    provider: 'groq',
+    providerStatus: 0,
+    providerStatusText,
+    modelUsed: normalizeGroqModel(process.env.GROQ_MODEL),
+    mode,
+  }
 }
 
 async function buildProviderDiagnostic(
   response: Response,
   modelUsed: string,
   mode: MarketingAiMode,
-): Promise<OpenRouterProviderDiagnostic> {
+): Promise<GroqProviderDiagnostic> {
   const providerError = parseProviderError(await readProviderErrorBody(response))
 
   return {
-    provider: 'openrouter',
+    provider: 'groq',
     providerStatus: response.status,
     providerStatusText: response.statusText,
     providerErrorCode: providerError.code,
@@ -483,15 +506,15 @@ function isAbortError(error: unknown): boolean {
 }
 
 function providerErrorCodeForStatus(status: number): string {
-  if (status === 401 || status === 403) return 'OPENROUTER_AUTH_FAILED'
-  if (status === 429) return 'OPENROUTER_RATE_LIMITED'
-  return 'OPENROUTER_REQUEST_FAILED'
+  if (status === 401 || status === 403) return 'GROQ_AUTH_FAILED'
+  if (status === 429) return 'GROQ_RATE_LIMITED'
+  return 'GROQ_REQUEST_FAILED'
 }
 
-function isOpenRouterTimeoutError(error: unknown): boolean {
-  return error instanceof Error && error.message === 'OPENROUTER_TIMEOUT'
+function isGroqTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.message === 'GROQ_TIMEOUT'
 }
 
-function isOpenRouterProviderError(error: unknown): error is OpenRouterProviderError {
-  return error instanceof OpenRouterProviderError
+function isGroqProviderError(error: unknown): error is GroqProviderError {
+  return error instanceof GroqProviderError
 }

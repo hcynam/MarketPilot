@@ -1,5 +1,3 @@
-import { marketingKnowledgePromptBlock } from './marketingKnowledgeBase'
-import { marketingRulesPromptBlock } from './marketingPlanRules'
 import {
   requiredMarketingPlanSections,
   type AIFinalMarketingPlanResponse,
@@ -37,6 +35,15 @@ const decisionImpactValues = [
   'other',
 ]
 
+const compactMarketingKnowledge = `
+- STP: define actionable segments, select a priority target, and state positioning/USP.
+- Persona: capture need, pain, objection, buying trigger, access path, and willingness to pay.
+- 7P: connect Product, Price, Place, Promotion, People, Process, and Physical Evidence to actions.
+- Funnel: map awareness, consideration, conversion, activation/loyalty, and advocacy to channels and KPIs.
+- KPIs: use measurable targets and methods such as CTR, conversion, CPL, CAC, retention, LTV, and ROI.
+- Pricing and budget must fit margin, stage, capacity, evidence, and risk. Never invent market facts.
+`.trim()
+
 export function buildClarifyingQuestionsPrompt(args: BuildClarifyingQuestionsPromptArgs): string {
   const businessInput = serializeForPrompt(args.businessInput)
   const contextNotes = formatList(args.contextNotes)
@@ -51,10 +58,7 @@ INPUT
 ${businessInput}
 
 COURSE KNOWLEDGE
-${marketingKnowledgePromptBlock}
-
-STRICT RULES
-${marketingRulesPromptBlock}
+${compactMarketingKnowledge}
 
 CONTEXT NOTES
 ${contextNotes}
@@ -69,9 +73,7 @@ CLARIFICATION INSTRUCTIONS
 - Avoid generic questions that the original form already answered.
 - Do not ask unnecessary questions just to fill a quota.
 - If input is nonsense, suspicious, contradictory, or very low-value, ask diagnostic questions instead of pretending it is enough.
-- Required questions should normally be 3-8.
-- Maximum required questions: 10.
-- Optional questions maximum: 3.
+- Ask at most 3 required questions and at most 1 optional question.
 - If the input is genuinely sufficient, return mode "ready_for_plan" and keep requiredQuestions empty.
 - If important information is missing, return mode "needs_clarification".
 - Output Persian-first professional JSON only.
@@ -127,10 +129,7 @@ ASSUMPTIONS ALLOWED ONLY IF NEEDED
 ${assumptions}
 
 COURSE KNOWLEDGE
-${marketingKnowledgePromptBlock}
-
-STRICT RULES
-${marketingRulesPromptBlock}
+${compactMarketingKnowledge}
 
 REQUIRED 17 SECTIONS
 Return exactly these 17 sections with exact ids and titles:
@@ -144,6 +143,7 @@ FINAL PLAN INSTRUCTIONS
 - sections.length must be exactly 17.
 - language must be exactly "fa".
 - Avoid generic filler and essay-like output.
+- Keep every section concise: one short paragraph or a minimal structured list/cards set.
 - Be Persian-first and professional.
 - Use English only for standard terms and acronyms such as KPI, USP, CAC, ROI, CTR, SEO, LTV, PPC.
 - Every recommendation must include logic from input or an explicit assumption.
@@ -160,6 +160,7 @@ FINAL PLAN INSTRUCTIONS
 - Do not overpromise results.
 - Output valid JSON only, matching AIFinalMarketingPlanResponse.
 - No markdown outside JSON. No explanations outside JSON.
+- Fit the complete response within 2200 output tokens.
 
 STRUCTURED CONTENT SHAPES
 AIChannelRecommendation:
@@ -255,4 +256,3 @@ function formatList(values: string[] | undefined): string {
   if (!values || values.length === 0) return '- none'
   return values.map((value) => `- ${value}`).join('\n')
 }
-

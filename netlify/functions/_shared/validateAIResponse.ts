@@ -98,16 +98,16 @@ export function validateClarifyingQuestionsResponse(data: unknown): ValidationRe
   const requiredCount = Array.isArray(data.requiredQuestions) ? data.requiredQuestions.length : 0
   const optionalCount = Array.isArray(data.optionalQuestions) ? data.optionalQuestions.length : 0
 
-  if (data.mode === 'needs_clarification' && (requiredCount < 1 || requiredCount > 10)) {
-    errors.push('requiredQuestions must contain 1-10 questions when mode is needs_clarification.')
+  if (data.mode === 'needs_clarification' && (requiredCount < 1 || requiredCount > 3)) {
+    errors.push('requiredQuestions must contain 1-3 questions when mode is needs_clarification.')
   }
 
-  if (requiredCount > 10) {
-    errors.push('requiredQuestions must not contain more than 10 questions.')
+  if (requiredCount > 3) {
+    errors.push('requiredQuestions must not contain more than 3 questions.')
   }
 
-  if (optionalCount > 3) {
-    errors.push('optionalQuestions must not contain more than 3 questions.')
+  if (optionalCount > 1) {
+    errors.push('optionalQuestions must not contain more than 1 question.')
   }
 
   validateUniqueQuestionIds(data.requiredQuestions, data.optionalQuestions, errors)
@@ -425,4 +425,3 @@ function hasMeaningfulContent(value: unknown): boolean {
   }
   return value !== null && value !== undefined
 }
-
