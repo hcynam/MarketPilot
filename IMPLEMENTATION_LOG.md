@@ -1226,3 +1226,11 @@ Created `CHECKPOINT_PHASE4_BEFORE_FIX.md` capturing current project status, comp
 - Added a single strict raw-JSON retry for Groq `json_validate_failed` responses while retaining JSON Object Mode on the first attempt.
 - Reduced question output to two required plus one optional, shortened plan fields, and lowered generation settings to 700/1800 completion tokens.
 - Preserved local JSON repair, validators, the deterministic fallback engine, and safe attempt-aware provider diagnostics.
+## Groq Response Normalization - 2026-07-12
+
+**Status:** Complete
+
+- Added schema-aware normalization between JSON parsing and strict validation for both questions and final-plan responses.
+- Repairable question aliases, missing defaults, string questions, IDs, limits, and required metadata are normalized without weakening the validator.
+- Final plans receive exact required section titles, missing-section repair, KPI/action/quality defaults, concise Persian text normalization, and adapter-safe top-level fields.
+- Validation failures now expose only short issue lists and top-level keys through `AI validation diagnostic`; raw AI responses and secrets are never logged.

@@ -7,6 +7,7 @@ import {
   validateClarifyingQuestionsResponse,
   validateFinalMarketingPlanResponse,
 } from './_shared/validateAIResponse'
+import { normalizePlanResponse, normalizeQuestionsResponse } from './_shared/normalizeAIResponse'
 
 declare const process: {
   env: Record<string, string | undefined>
@@ -180,6 +181,7 @@ async function handleQuestionsMode(payload: MarketingAiPayload) {
   const result = await generateAndValidate({
     mode: 'questions',
     prompt,
+    businessInput: payload.businessInput as Record<string, unknown>,
     validate: validateClarifyingQuestionsResponse,
   })
 
@@ -197,6 +199,7 @@ async function handlePlanMode(payload: MarketingAiPayload) {
   const result = await generateAndValidate({
     mode: 'plan',
     prompt,
+    businessInput: payload.businessInput as Record<string, unknown>,
     validate: validateFinalMarketingPlanResponse,
   })
 
@@ -206,6 +209,7 @@ async function handlePlanMode(payload: MarketingAiPayload) {
 async function generateAndValidate(args: {
   mode: MarketingAiMode
   prompt: string
+  businessInput: Record<string, unknown>
   validate: (data: unknown) => { ok: boolean; errors: string[] }
 }): Promise<{ statusCode: number; payload: unknown }> {
   if (args.prompt.length > maxPromptChars) {
@@ -319,17 +323,29 @@ async function generateAndValidate(args: {
     }
   }
 
-  const validation = args.validate(parsed.data)
+  const normalized = args.mode === 'questions'
+    ? normalizeQuestionsResponse(parsed.data)
+    : normalizePlanResponse(parsed.data, args.businessInput)
+  const validation = args.validate(normalized)
   if (!validation.ok) {
+    const validationStage = args.mode === 'questions' ? 'questions' : 'plan'
+    const validationIssues = validation.errors.slice(0, 10)
+    const receivedTopLevelKeys = isRecord(normalized) ? Object.keys(normalized).slice(0, 20) : []
+    const diagnosticPayload = {
+      ok: false,
+      mode: args.mode,
+      errorCode: 'AI_VALIDATION_FAILED',
+      errorMessage: 'AI response did not match the required planning contract after normalization.',
+      validationStage,
+      validationIssues,
+      receivedTopLevelKeys,
+      modelUsed: groqResult.diagnostic.modelUsed,
+      provider: 'groq',
+    }
+    console.error('AI validation diagnostic', diagnosticPayload)
     return {
       statusCode: 200,
-      payload: {
-        ok: false,
-        mode: args.mode,
-        errorCode: 'AI_VALIDATION_FAILED',
-        errorMessage: 'AI response did not match the required planning contract.',
-        validationErrors: validation.errors,
-      },
+      payload: diagnosticPayload,
     }
   }
 
@@ -338,7 +354,7 @@ async function generateAndValidate(args: {
     payload: {
       ok: true,
       mode: args.mode,
-      data: parsed.data,
+      data: normalized,
     },
   }
 }

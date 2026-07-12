@@ -82,6 +82,7 @@ CLARIFICATION INSTRUCTIONS
 
 OUTPUT CONTRACT
 Return valid JSON matching ClarifyingQuestionsResponse:
+Use exactly these top-level keys and no others: mode, inputQualityScore, diagnosis, missingInformation, requiredQuestions, optionalQuestions, assumptionsIfProceeding.
 {
   "mode": "needs_clarification",
   "inputQualityScore": 0,
@@ -181,6 +182,8 @@ AIPersonaCard:
 
 OUTPUT CONTRACT
 Return valid JSON matching AIFinalMarketingPlanResponse:
+Use exactly these top-level keys and no others: businessName, language, planType, inputQualityDiagnosis, assumptions, sections, kpis, actionPlan30Days, risks, qualityScore.
+Every one of the 17 section objects must contain exactly id, title, contentType, and content.
 {
   "businessName": "string",
   "language": "fa",

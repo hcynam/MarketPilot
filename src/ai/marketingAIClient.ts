@@ -18,6 +18,9 @@ interface FunctionErrorResponse {
   providerErrorMessage?: string
   modelUsed?: string
   attempt?: 'json_mode' | 'raw_json_retry'
+  validationStage?: 'questions' | 'plan'
+  validationIssues?: string[]
+  receivedTopLevelKeys?: string[]
 }
 
 interface FunctionSuccessResponse<T> {
@@ -38,6 +41,9 @@ export interface AIClientFailure {
   providerErrorMessage?: string
   modelUsed?: string
   attempt?: 'json_mode' | 'raw_json_retry'
+  validationStage?: 'questions' | 'plan'
+  validationIssues?: string[]
+  receivedTopLevelKeys?: string[]
 }
 
 export interface AIClientSuccess<T> {
@@ -125,6 +131,9 @@ async function postMarketingAI<T>(payload: Record<string, unknown>): Promise<AIC
       providerErrorMessage: error.providerErrorMessage,
       modelUsed: error.modelUsed,
       attempt: error.attempt,
+      validationStage: error.validationStage,
+      validationIssues: error.validationIssues,
+      receivedTopLevelKeys: error.receivedTopLevelKeys,
     }
 
     logProviderDiagnostic(failure)
@@ -173,10 +182,23 @@ function readFunctionError(value: unknown): FunctionErrorResponse {
     providerErrorMessage: typeof value.providerErrorMessage === 'string' ? value.providerErrorMessage : undefined,
     modelUsed: typeof value.modelUsed === 'string' ? value.modelUsed : undefined,
     attempt: value.attempt === 'json_mode' || value.attempt === 'raw_json_retry' ? value.attempt : undefined,
+    validationStage: value.validationStage === 'questions' || value.validationStage === 'plan' ? value.validationStage : undefined,
+    validationIssues: readStringArray(value.validationIssues),
+    receivedTopLevelKeys: readStringArray(value.receivedTopLevelKeys),
   }
 }
 
 function logProviderDiagnostic(error: AIClientFailure) {
+  if (error.errorCode === 'AI_VALIDATION_FAILED') {
+    console.warn('AI validation diagnostic', {
+      validationStage: error.validationStage,
+      validationIssues: error.validationIssues,
+      receivedTopLevelKeys: error.receivedTopLevelKeys,
+      modelUsed: error.modelUsed,
+    })
+    return
+  }
+
   if (typeof error.providerStatus !== 'number') return
 
   console.warn('Groq provider diagnostic', {
@@ -191,6 +213,10 @@ function logProviderDiagnostic(error: AIClientFailure) {
     modelUsed: error.modelUsed,
     attempt: error.attempt,
   })
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
