@@ -73,10 +73,11 @@ CLARIFICATION INSTRUCTIONS
 - Avoid generic questions that the original form already answered.
 - Do not ask unnecessary questions just to fill a quota.
 - If input is nonsense, suspicious, contradictory, or very low-value, ask diagnostic questions instead of pretending it is enough.
-- Ask at most 3 required questions and at most 1 optional question.
+- Ask at most 2 required questions and at most 1 optional question.
 - If the input is genuinely sufficient, return mode "ready_for_plan" and keep requiredQuestions empty.
 - If important information is missing, return mode "needs_clarification".
 - Output Persian-first professional JSON only.
+- Every string value must be concise Persian plain text.
 - Do not include markdown, comments, code fences, or explanations outside JSON.
 
 OUTPUT CONTRACT
@@ -143,7 +144,7 @@ FINAL PLAN INSTRUCTIONS
 - sections.length must be exactly 17.
 - language must be exactly "fa".
 - Avoid generic filler and essay-like output.
-- Keep every section concise: one short paragraph or a minimal structured list/cards set.
+- Keep every field concise. Use short Persian plain-text strings, never long paragraphs.
 - Be Persian-first and professional.
 - Use English only for standard terms and acronyms such as KPI, USP, CAC, ROI, CTR, SEO, LTV, PPC.
 - Every recommendation must include logic from input or an explicit assumption.
@@ -160,7 +161,7 @@ FINAL PLAN INSTRUCTIONS
 - Do not overpromise results.
 - Output valid JSON only, matching AIFinalMarketingPlanResponse.
 - No markdown outside JSON. No explanations outside JSON.
-- Fit the complete response within 2200 output tokens.
+- Fit the complete response within 1800 output tokens.
 
 STRUCTURED CONTENT SHAPES
 AIChannelRecommendation:

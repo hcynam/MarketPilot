@@ -98,12 +98,12 @@ export function validateClarifyingQuestionsResponse(data: unknown): ValidationRe
   const requiredCount = Array.isArray(data.requiredQuestions) ? data.requiredQuestions.length : 0
   const optionalCount = Array.isArray(data.optionalQuestions) ? data.optionalQuestions.length : 0
 
-  if (data.mode === 'needs_clarification' && (requiredCount < 1 || requiredCount > 3)) {
-    errors.push('requiredQuestions must contain 1-3 questions when mode is needs_clarification.')
+  if (data.mode === 'needs_clarification' && (requiredCount < 1 || requiredCount > 2)) {
+    errors.push('requiredQuestions must contain 1-2 questions when mode is needs_clarification.')
   }
 
-  if (requiredCount > 3) {
-    errors.push('requiredQuestions must not contain more than 3 questions.')
+  if (requiredCount > 2) {
+    errors.push('requiredQuestions must not contain more than 2 questions.')
   }
 
   if (optionalCount > 1) {

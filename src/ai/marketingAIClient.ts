@@ -17,6 +17,7 @@ interface FunctionErrorResponse {
   providerErrorCode?: string
   providerErrorMessage?: string
   modelUsed?: string
+  attempt?: 'json_mode' | 'raw_json_retry'
 }
 
 interface FunctionSuccessResponse<T> {
@@ -36,6 +37,7 @@ export interface AIClientFailure {
   providerErrorCode?: string
   providerErrorMessage?: string
   modelUsed?: string
+  attempt?: 'json_mode' | 'raw_json_retry'
 }
 
 export interface AIClientSuccess<T> {
@@ -122,6 +124,7 @@ async function postMarketingAI<T>(payload: Record<string, unknown>): Promise<AIC
       providerErrorCode: error.providerErrorCode,
       providerErrorMessage: error.providerErrorMessage,
       modelUsed: error.modelUsed,
+      attempt: error.attempt,
     }
 
     logProviderDiagnostic(failure)
@@ -169,6 +172,7 @@ function readFunctionError(value: unknown): FunctionErrorResponse {
     providerErrorCode: typeof value.providerErrorCode === 'string' ? value.providerErrorCode : undefined,
     providerErrorMessage: typeof value.providerErrorMessage === 'string' ? value.providerErrorMessage : undefined,
     modelUsed: typeof value.modelUsed === 'string' ? value.modelUsed : undefined,
+    attempt: value.attempt === 'json_mode' || value.attempt === 'raw_json_retry' ? value.attempt : undefined,
   }
 }
 
@@ -185,6 +189,7 @@ function logProviderDiagnostic(error: AIClientFailure) {
     providerErrorCode: error.providerErrorCode,
     providerErrorMessage: error.providerErrorMessage,
     modelUsed: error.modelUsed,
+    attempt: error.attempt,
   })
 }
 

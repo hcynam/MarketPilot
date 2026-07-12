@@ -1218,3 +1218,11 @@ Created `CHECKPOINT_PHASE4_BEFORE_FIX.md` capturing current project status, comp
 - Reduced question limits to three required and one optional, and compressed course knowledge and final-plan instructions for concise 17-section JSON within the 2200-token output budget.
 - Preserved the Function route, validators, UI flow, report renderer, exports, and deterministic fallback.
 - Updated safe diagnostics and Netlify environment documentation; only `GROQ_API_KEY` is secret.
+## Groq JSON Generation Fix - 2026-07-12
+
+**Status:** Complete
+
+- Hid Qwen reasoning and disabled reasoning effort when supported, with a compatibility retry that omits only `reasoning_effort` when Groq rejects it.
+- Added a single strict raw-JSON retry for Groq `json_validate_failed` responses while retaining JSON Object Mode on the first attempt.
+- Reduced question output to two required plus one optional, shortened plan fields, and lowered generation settings to 700/1800 completion tokens.
+- Preserved local JSON repair, validators, the deterministic fallback engine, and safe attempt-aware provider diagnostics.

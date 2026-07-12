@@ -16,6 +16,7 @@ declare const Buffer: {
 } | undefined
 
 type MarketingAiMode = 'questions' | 'plan'
+type GroqAttempt = 'json_mode' | 'raw_json_retry'
 
 interface MarketingAiPayload {
   mode?: unknown
@@ -46,14 +47,17 @@ interface GroqProviderDiagnostic {
   providerErrorMessage?: string
   modelUsed: string
   mode: MarketingAiMode
+  attempt: GroqAttempt
 }
 
 class GroqProviderError extends Error {
   diagnostic: GroqProviderDiagnostic
+  errorCode?: string
 
-  constructor(diagnostic: GroqProviderDiagnostic) {
+  constructor(diagnostic: GroqProviderDiagnostic, errorCode?: string) {
     super('GROQ_PROVIDER_ERROR')
     this.diagnostic = diagnostic
+    this.errorCode = errorCode
   }
 }
 
@@ -216,10 +220,10 @@ async function generateAndValidate(args: {
     }
   }
 
-  let responseJson: unknown
+  let groqResult: GroqCallResult
 
   try {
-    responseJson = await callGroq(args.prompt, args.mode)
+    groqResult = await callGroq(args.prompt, args.mode)
   } catch (error) {
     if (isGroqTimeoutError(error)) {
       const diagnosticPayload = {
@@ -239,7 +243,7 @@ async function generateAndValidate(args: {
     }
 
     if (isGroqProviderError(error)) {
-      const errorCode = providerErrorCodeForStatus(error.diagnostic.providerStatus)
+      const errorCode = error.errorCode || providerErrorCodeForStatus(error.diagnostic.providerStatus)
       const diagnosticPayload = {
         ok: false,
         mode: args.mode,
@@ -274,7 +278,7 @@ async function generateAndValidate(args: {
 
   let text: string
   try {
-    text = extractGroqText(responseJson)
+    text = extractGroqText(groqResult.responseJson)
   } catch {
     return {
       statusCode: 502,
@@ -289,6 +293,20 @@ async function generateAndValidate(args: {
 
   const parsed = safeParseJson(text)
   if (!parsed.ok) {
+    if (groqResult.attempt === 'raw_json_retry') {
+      const diagnosticPayload = {
+        ok: false,
+        mode: args.mode,
+        errorCode: 'GROQ_JSON_GENERATION_FAILED',
+        errorMessage: 'Groq could not generate valid JSON after retrying.',
+        ...groqResult.diagnostic,
+        providerErrorCode: 'json_parse_failed',
+        providerErrorMessage: 'Raw JSON retry did not contain a valid JSON object.',
+      }
+      console.error('Groq provider diagnostic', diagnosticPayload)
+      return { statusCode: 502, payload: diagnosticPayload }
+    }
+
     return {
       statusCode: 200,
       payload: {
@@ -325,7 +343,13 @@ async function generateAndValidate(args: {
   }
 }
 
-async function callGroq(prompt: string, mode: MarketingAiMode): Promise<unknown> {
+interface GroqCallResult {
+  responseJson: unknown
+  attempt: GroqAttempt
+  diagnostic: GroqProviderDiagnostic
+}
+
+async function callGroq(prompt: string, mode: MarketingAiMode): Promise<GroqCallResult> {
   const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) {
     throw new Error('Missing Groq API key')
@@ -336,40 +360,112 @@ async function callGroq(prompt: string, mode: MarketingAiMode): Promise<unknown>
   const providerTimeoutMs = Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
     ? configuredTimeoutMs
     : defaultProviderTimeoutMs
+  const jsonModeResponse = await sendGroqRequest({
+    apiKey,
+    model,
+    mode,
+    prompt,
+    providerTimeoutMs,
+    attempt: 'json_mode',
+    useResponseFormat: true,
+  })
+
+  if (jsonModeResponse.ok) {
+    return buildSuccessfulGroqResult(jsonModeResponse, model, mode, 'json_mode')
+  }
+
+  const jsonModeDiagnostic = await buildProviderDiagnostic(jsonModeResponse, model, mode, 'json_mode')
+  if (jsonModeDiagnostic.providerStatus !== 400 || jsonModeDiagnostic.providerErrorCode !== 'json_validate_failed') {
+    throw new GroqProviderError(jsonModeDiagnostic)
+  }
+
+  console.error('Groq provider diagnostic', {
+    errorCode: 'GROQ_JSON_GENERATION_RETRY',
+    ...jsonModeDiagnostic,
+  })
+
+  const rawJsonResponse = await sendGroqRequest({
+    apiKey,
+    model,
+    mode,
+    prompt,
+    providerTimeoutMs,
+    attempt: 'raw_json_retry',
+    useResponseFormat: false,
+  })
+
+  if (!rawJsonResponse.ok) {
+    const diagnostic = await buildProviderDiagnostic(rawJsonResponse, model, mode, 'raw_json_retry')
+    throw new GroqProviderError(diagnostic, 'GROQ_JSON_GENERATION_FAILED')
+  }
+
+  return buildSuccessfulGroqResult(rawJsonResponse, model, mode, 'raw_json_retry')
+}
+
+async function sendGroqRequest(args: {
+  apiKey: string
+  model: string
+  mode: MarketingAiMode
+  prompt: string
+  providerTimeoutMs: number
+  attempt: GroqAttempt
+  useResponseFormat: boolean
+}): Promise<Response> {
+  const responseWithReasoningEffort = await executeGroqFetch(args, true)
+  if (responseWithReasoningEffort.ok) return responseWithReasoningEffort
+
+  const diagnostic = await buildProviderDiagnostic(
+    responseWithReasoningEffort.clone(),
+    args.model,
+    args.mode,
+    args.attempt,
+  )
+  if (!isReasoningEffortRejected(diagnostic)) return responseWithReasoningEffort
+
+  return executeGroqFetch(args, false)
+}
+
+async function executeGroqFetch(
+  args: {
+    apiKey: string
+    model: string
+    mode: MarketingAiMode
+    prompt: string
+    providerTimeoutMs: number
+    attempt: GroqAttempt
+    useResponseFormat: boolean
+  },
+  includeReasoningEffort: boolean,
+): Promise<Response> {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), providerTimeoutMs)
+  const timeout = setTimeout(() => controller.abort(), args.providerTimeoutMs)
+  const strictSystemMessage = args.attempt === 'raw_json_retry'
+    ? 'Return ONLY one valid JSON object. No markdown. No explanation. No code fences. The first character must be { and the last character must be }.'
+    : 'You are MarketPilot AI, a Persian-first expert marketing planning assistant. Return valid JSON only. Do not use markdown.'
+
+  const requestBody: Record<string, unknown> = {
+    model: args.model,
+    messages: [
+      { role: 'system', content: strictSystemMessage },
+      { role: 'user', content: args.prompt },
+    ],
+    temperature: args.mode === 'questions' ? 0.1 : 0.15,
+    max_completion_tokens: args.mode === 'questions' ? 700 : 1800,
+    reasoning_format: 'hidden',
+  }
+  if (includeReasoningEffort) requestBody.reasoning_effort = 'none'
+  if (args.useResponseFormat) requestBody.response_format = { type: 'json_object' }
 
   try {
-    const response = await fetch(groqEndpoint, {
+    return await fetch(groqEndpoint, {
       method: 'POST',
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${args.apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are MarketPilot AI, a Persian-first expert marketing planning assistant. Return valid JSON only. Do not use markdown.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: mode === 'questions' ? 0.2 : 0.25,
-        max_tokens: mode === 'questions' ? 800 : 2200,
-        response_format: { type: 'json_object' },
-      }),
+      body: JSON.stringify(requestBody),
     })
-
-    if (!response.ok) {
-      throw new GroqProviderError(await buildProviderDiagnostic(response, model, mode))
-    }
-
-    return response.json()
   } catch (error) {
     if (isAbortError(error)) {
       throw new Error('GROQ_TIMEOUT')
@@ -378,6 +474,26 @@ async function callGroq(prompt: string, mode: MarketingAiMode): Promise<unknown>
     throw error
   } finally {
     clearTimeout(timeout)
+  }
+}
+
+async function buildSuccessfulGroqResult(
+  response: Response,
+  model: string,
+  mode: MarketingAiMode,
+  attempt: GroqAttempt,
+): Promise<GroqCallResult> {
+  return {
+    responseJson: await response.json(),
+    attempt,
+    diagnostic: {
+      provider: 'groq',
+      providerStatus: response.status,
+      providerStatusText: response.statusText,
+      modelUsed: model,
+      mode,
+      attempt,
+    },
   }
 }
 
@@ -428,6 +544,7 @@ function buildLocalProviderDiagnostic(
     providerStatusText,
     modelUsed: normalizeGroqModel(process.env.GROQ_MODEL),
     mode,
+    attempt: 'json_mode',
   }
 }
 
@@ -435,6 +552,7 @@ async function buildProviderDiagnostic(
   response: Response,
   modelUsed: string,
   mode: MarketingAiMode,
+  attempt: GroqAttempt,
 ): Promise<GroqProviderDiagnostic> {
   const providerError = parseProviderError(await readProviderErrorBody(response))
 
@@ -446,6 +564,7 @@ async function buildProviderDiagnostic(
     providerErrorMessage: truncateProviderErrorMessage(providerError.message),
     modelUsed,
     mode,
+    attempt,
   }
 }
 
@@ -509,6 +628,11 @@ function providerErrorCodeForStatus(status: number): string {
   if (status === 401 || status === 403) return 'GROQ_AUTH_FAILED'
   if (status === 429) return 'GROQ_RATE_LIMITED'
   return 'GROQ_REQUEST_FAILED'
+}
+
+function isReasoningEffortRejected(diagnostic: GroqProviderDiagnostic): boolean {
+  const details = `${diagnostic.providerErrorCode || ''} ${diagnostic.providerErrorMessage || ''}`.toLowerCase()
+  return diagnostic.providerStatus === 400 && /reasoning[_\s-]?effort/.test(details)
 }
 
 function isGroqTimeoutError(error: unknown): boolean {
