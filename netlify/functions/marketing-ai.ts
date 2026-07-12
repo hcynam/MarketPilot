@@ -7,7 +7,16 @@ import {
   validateClarifyingQuestionsResponse,
   validateFinalMarketingPlanResponse,
 } from './_shared/validateAIResponse'
-import { normalizePlanResponse, normalizeQuestionsResponse } from './_shared/normalizeAIResponse'
+import { normalizeQuestionsResponse } from './_shared/normalizeAIResponse'
+import {
+  baselineToFinalResponse,
+  evaluateHybridQuality,
+  mergeBaselineWithAIPatch,
+  normalizeEnhancementPatch,
+  validateEnhancementPatch,
+  type AIEnhancementPatch,
+  type BaselineMarketingPlan,
+} from './_shared/hybridPlan'
 
 declare const process: {
   env: Record<string, string | undefined>
@@ -24,6 +33,7 @@ interface MarketingAiPayload {
   businessInput?: unknown
   clarifyingAnswers?: unknown
   assumptions?: unknown
+  baselinePlan?: unknown
   contextNotes?: unknown
 }
 
@@ -189,21 +199,60 @@ async function handleQuestionsMode(payload: MarketingAiPayload) {
 }
 
 async function handlePlanMode(payload: MarketingAiPayload) {
-  const prompt = buildFinalMarketingPlanPrompt({
-    businessInput: payload.businessInput as Record<string, unknown>,
-    clarifyingAnswers: isRecord(payload.clarifyingAnswers) ? payload.clarifyingAnswers : {},
-    assumptions: readOptionalStringArray(payload.assumptions),
-    contextNotes: readOptionalStringArray(payload.contextNotes),
-  })
+  if (!isBaselineMarketingPlan(payload.baselinePlan)) {
+    return jsonResponse(400, {
+      ok: false, mode: 'plan', errorCode: 'MISSING_BASELINE_PLAN',
+      errorMessage: 'A valid deterministic baselinePlan is required for plan mode.',
+    })
+  }
 
-  const result = await generateAndValidate({
-    mode: 'plan',
-    prompt,
-    businessInput: payload.businessInput as Record<string, unknown>,
-    validate: validateFinalMarketingPlanResponse,
-  })
+  const businessInput = payload.businessInput as Record<string, unknown>
+  const clarifyingAnswers = isRecord(payload.clarifyingAnswers) ? payload.clarifyingAnswers : {}
+  const baselinePlan = payload.baselinePlan
+  let qualityIssues: string[] = []
 
-  return jsonResponse(result.statusCode, result.payload)
+  for (let qualityAttempt = 0; qualityAttempt < 2; qualityAttempt += 1) {
+    const prompt = buildFinalMarketingPlanPrompt({
+      businessInput,
+      clarifyingAnswers,
+      baselinePlan,
+      repairIssues: qualityAttempt === 1 ? qualityIssues : undefined,
+      contextNotes: readOptionalStringArray(payload.contextNotes),
+    })
+    const result = await generateAndValidate({
+      mode: 'plan', prompt, businessInput,
+      normalize: normalizeEnhancementPatch,
+      validate: validateEnhancementPatch,
+      validationStage: 'plan-patch',
+    })
+    const success = readSuccessfulData(result.payload)
+    if (!success) {
+      qualityIssues = readDiagnosticIssues(result.payload)
+      if (qualityAttempt === 0 && isRepairablePatchFailure(result.payload)) continue
+      return hybridFallbackResponse(baselinePlan, businessInput, qualityIssues, result.payload)
+    }
+
+    const patch = success.data as AIEnhancementPatch
+    const finalPlan = mergeBaselineWithAIPatch(baselinePlan, patch, businessInput, clarifyingAnswers)
+    qualityIssues = evaluateHybridQuality(finalPlan, patch, businessInput)
+    const finalValidation = validateFinalMarketingPlanResponse(finalPlan)
+    qualityIssues.push(...finalValidation.errors.map((issue) => `Final contract: ${issue}`))
+    qualityIssues = [...new Set(qualityIssues)].slice(0, 20)
+    if (qualityIssues.length === 0) {
+      return jsonResponse(200, {
+        ok: true, mode: 'plan', data: finalPlan, planSource: 'ai-enhanced',
+        provider: 'groq', modelUsed: success.modelUsed, qualityIssues: [],
+      })
+    }
+
+    console.error('AI patch quality diagnostic', {
+      errorCode: 'AI_PATCH_QUALITY_FAILED', provider: 'groq', modelUsed: success.modelUsed,
+      mode: 'plan', validationIssues: [], qualityIssues: qualityIssues.slice(0, 10),
+      patchTopLevelKeys: Object.keys(patch).slice(0, 20), planSource: 'internal-fallback',
+    })
+  }
+
+  return hybridFallbackResponse(baselinePlan, businessInput, qualityIssues)
 }
 
 async function generateAndValidate(args: {
@@ -211,6 +260,8 @@ async function generateAndValidate(args: {
   prompt: string
   businessInput: Record<string, unknown>
   validate: (data: unknown) => { ok: boolean; errors: string[] }
+  normalize?: (data: unknown) => unknown
+  validationStage?: string
 }): Promise<{ statusCode: number; payload: unknown }> {
   if (args.prompt.length > maxPromptChars) {
     return {
@@ -323,12 +374,12 @@ async function generateAndValidate(args: {
     }
   }
 
-  const normalized = args.mode === 'questions'
-    ? normalizeQuestionsResponse(parsed.data)
-    : normalizePlanResponse(parsed.data, args.businessInput)
+  const normalized = args.normalize
+    ? args.normalize(parsed.data)
+    : normalizeQuestionsResponse(parsed.data)
   const validation = args.validate(normalized)
   if (!validation.ok) {
-    const validationStage = args.mode === 'questions' ? 'questions' : 'plan'
+    const validationStage = args.validationStage || (args.mode === 'questions' ? 'questions' : 'plan')
     const validationIssues = validation.errors.slice(0, 10)
     const receivedTopLevelKeys = isRecord(normalized) ? Object.keys(normalized).slice(0, 20) : []
     const diagnosticPayload = {
@@ -339,6 +390,9 @@ async function generateAndValidate(args: {
       validationStage,
       validationIssues,
       receivedTopLevelKeys,
+      patchTopLevelKeys: args.validationStage === 'plan-patch' ? receivedTopLevelKeys : undefined,
+      qualityIssues: [],
+      planSource: args.validationStage === 'plan-patch' ? 'internal-fallback' : undefined,
       modelUsed: groqResult.diagnostic.modelUsed,
       provider: 'groq',
     }
@@ -355,6 +409,7 @@ async function generateAndValidate(args: {
       ok: true,
       mode: args.mode,
       data: normalized,
+      modelUsed: groqResult.diagnostic.modelUsed,
     },
   }
 }
@@ -465,8 +520,8 @@ async function executeGroqFetch(
       { role: 'system', content: strictSystemMessage },
       { role: 'user', content: args.prompt },
     ],
-    temperature: args.mode === 'questions' ? 0.1 : 0.15,
-    max_completion_tokens: args.mode === 'questions' ? 700 : 1800,
+    temperature: args.mode === 'questions' ? 0.15 : 0.2,
+    max_completion_tokens: args.mode === 'questions' ? 900 : 3000,
     reasoning_format: 'hidden',
   }
   if (includeReasoningEffort) requestBody.reasoning_effort = 'none'
@@ -622,6 +677,72 @@ function truncateProviderErrorMessage(message: string | undefined): string | und
   return message.length > maxProviderErrorMessageChars
     ? `${message.slice(0, maxProviderErrorMessageChars)}...`
     : message
+}
+
+function hybridFallbackResponse(
+  baselinePlan: BaselineMarketingPlan,
+  businessInput: Record<string, unknown>,
+  qualityIssues: string[],
+  priorPayload?: unknown,
+) {
+  const prior = isRecord(priorPayload) ? priorPayload : {}
+  const modelUsed = typeof prior.modelUsed === 'string'
+    ? prior.modelUsed
+    : normalizeGroqModel(process.env.GROQ_MODEL)
+  const diagnostic = {
+    errorCode: 'AI_PATCH_REJECTED', provider: 'groq', modelUsed, mode: 'plan',
+    validationIssues: readStringArray(prior.validationIssues).slice(0, 10),
+    qualityIssues: qualityIssues.slice(0, 10),
+    patchTopLevelKeys: readStringArray(prior.receivedTopLevelKeys).slice(0, 20),
+    planSource: 'internal-fallback',
+  }
+  console.error('AI patch quality diagnostic', diagnostic)
+  return jsonResponse(200, {
+    ok: true,
+    mode: 'plan',
+    data: baselineToFinalResponse(baselinePlan, businessInput),
+    planSource: 'internal-fallback',
+    provider: 'groq',
+    modelUsed,
+    qualityIssues: diagnostic.qualityIssues.length ? diagnostic.qualityIssues : diagnostic.validationIssues,
+  })
+}
+
+function readSuccessfulData(value: unknown): { data: unknown; modelUsed?: string } | null {
+  if (!isRecord(value) || value.ok !== true || !('data' in value)) return null
+  return { data: value.data, modelUsed: typeof value.modelUsed === 'string' ? value.modelUsed : undefined }
+}
+
+function readDiagnosticIssues(value: unknown): string[] {
+  if (!isRecord(value)) return ['Groq patch generation failed.']
+  return [
+    ...readStringArray(value.validationIssues),
+    ...readStringArray(value.qualityIssues),
+  ].slice(0, 10)
+}
+
+function isRepairablePatchFailure(value: unknown): boolean {
+  return isRecord(value) && value.errorCode === 'AI_VALIDATION_FAILED'
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function isBaselineMarketingPlan(value: unknown): value is BaselineMarketingPlan {
+  if (!isRecord(value)) return false
+  const stringKeys = [
+    'businessSummary', 'customerDevelopmentStage', 'targetMarket', 'positioningStatement',
+    'valueProposition', 'usp', 'pricingRecommendation',
+  ]
+  const arrayKeys = [
+    'marketSegments', 'customerPersonas', 'competitorAnalysis', 'funnelJourney',
+    'channelStrategy', 'kpiDashboard', 'actionPlan', 'risksAssumptions',
+  ]
+  return stringKeys.every((key) => typeof value[key] === 'string')
+    && arrayKeys.every((key) => Array.isArray(value[key]))
+    && isRecord(value.marketingMix7p)
+    && isRecord(value.qualityScore)
 }
 
 function decodeBase64(value: string): string {

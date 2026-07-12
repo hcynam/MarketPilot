@@ -1234,3 +1234,13 @@ Created `CHECKPOINT_PHASE4_BEFORE_FIX.md` capturing current project status, comp
 - Repairable question aliases, missing defaults, string questions, IDs, limits, and required metadata are normalized without weakening the validator.
 - Final plans receive exact required section titles, missing-section repair, KPI/action/quality defaults, concise Persian text normalization, and adapter-safe top-level fields.
 - Validation failures now expose only short issue lists and top-level keys through `AI validation diagnostic`; raw AI responses and secrets are never logged.
+## Hybrid Groq Enhancement Refactor - 2026-07-12
+
+**Status:** Complete
+
+- Replaced full-report AI generation with deterministic baseline → Groq strategic patch → strict validation → deterministic merge → post-merge quality gate.
+- Added patch coverage rules for 3 segments, primary target, 2 personas, USP, 3 competitors, complete 7P/funnel, 3 channels/KPIs, four action weeks, and risks with validation tests.
+- Removed analytical filler generation from normalization; normalization now repairs only safe shape, type, priority, and numeric variations.
+- Added one patch-only quality repair retry and baseline preservation with `planSource: internal-fallback` when the patch remains weak.
+- Improved clarification prompts with decision tradeoffs, Persian labels/priorities, and a 3-required/1-optional limit.
+- Added `docs/AI_HYBRID_QA_CHECKLIST.md` covering SaaS, local cafe, online course, vague input, and small-budget consulting scenarios.

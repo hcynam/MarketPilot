@@ -24,8 +24,8 @@ export const marketingPlanRules = {
     ],
     requiredQuestionLimits: {
       normalMinimum: 3,
-      normalMaximum: 2,
-      hardMaximum: 2,
+      normalMaximum: 3,
+      hardMaximum: 3,
       optionalMaximum: 1,
     },
   },

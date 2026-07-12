@@ -1,8 +1,4 @@
-import {
-  requiredMarketingPlanSections,
-  type AIFinalMarketingPlanResponse,
-  type ClarifyingQuestionsResponse,
-} from './marketingSchemas'
+import type { BaselineMarketingPlan } from './hybridPlan'
 
 type PromptValue = string | Record<string, unknown> | unknown[] | null | undefined
 
@@ -14,249 +10,119 @@ export interface BuildClarifyingQuestionsPromptArgs {
 export interface BuildFinalMarketingPlanPromptArgs {
   businessInput: PromptValue
   clarifyingAnswers?: PromptValue
-  assumptions?: string[]
+  baselinePlan: BaselineMarketingPlan
+  repairIssues?: string[]
   contextNotes?: string[]
 }
 
-export type ClarifyingQuestionsPromptContract = ClarifyingQuestionsResponse
-export type FinalMarketingPlanPromptContract = AIFinalMarketingPlanResponse
-
-const decisionImpactValues = [
-  'segmentation',
-  'positioning',
-  'channel',
-  'pricing',
-  'kpi',
-  'budget',
-  'funnel',
-  'competition',
-  'customer',
-  'offer',
-  'other',
-]
-
-const compactMarketingKnowledge = `
-- STP: define actionable segments, select a priority target, and state positioning/USP.
-- Persona: capture need, pain, objection, buying trigger, access path, and willingness to pay.
-- 7P: connect Product, Price, Place, Promotion, People, Process, and Physical Evidence to actions.
-- Funnel: map awareness, consideration, conversion, activation/loyalty, and advocacy to channels and KPIs.
-- KPIs: use measurable targets and methods such as CTR, conversion, CPL, CAC, retention, LTV, and ROI.
-- Pricing and budget must fit margin, stage, capacity, evidence, and risk. Never invent market facts.
+const courseRules = `
+- STP: choose actionable segments, one primary target, and a defensible position.
+- 7P: recommendations must fit product, price, place, promotion, people, process, and physical evidence.
+- Funnel: cover Awareness, Consideration, Conversion, and Retention with actions and metrics.
+- Tie channels, pricing, KPI, and experiments to budget, capacity, stage, customer problem, and evidence.
+- Do not invent market facts. Turn uncertainty into a named assumption and validation test.
 `.trim()
 
 export function buildClarifyingQuestionsPrompt(args: BuildClarifyingQuestionsPromptArgs): string {
-  const businessInput = serializeForPrompt(args.businessInput)
-  const contextNotes = formatList(args.contextNotes)
-
   return `
-You are MarketPilot AI, a Persian-first marketing planning analyst.
+TASK: Decide whether a marketing plan needs a small number of decision-changing clarifications.
 
-TASK
-Evaluate the user business input quality. Do not generate the marketing plan yet.
+BUSINESS INPUT
+${serialize(args.businessInput)}
 
-INPUT
-${businessInput}
+RULES
+- Ask zero to 3 required questions and at most 1 optional question.
+- Never repeat a form question whose answer is already present.
+- Ask tradeoff or prioritization questions that change STP, channel, pricing, offer, or KPI decisions.
+- Each question needs a short Persian label and Persian priority: بالا, متوسط, or پایین.
+- Prefer useful choice options grounded in the supplied business.
+- All user-visible strings must be professional Persian. KPI, USP, STP, 7P and channel names may remain standard acronyms.
+- Output only one JSON object. No markdown and no extra keys.
 
-COURSE KNOWLEDGE
-${compactMarketingKnowledge}
+EXACT JSON SHAPE
+{
+  "mode":"needs_clarification|ready_for_plan",
+  "inputQualityScore":70,
+  "diagnosis":"تشخیص کوتاه و اختصاصی",
+  "missingInformation":[],
+  "requiredQuestions":[{
+    "id":"decision-1",
+    "label":"اولویت بخش مشتری",
+    "question":"یک پرسش تصمیم‌ساز و اختصاصی",
+    "whyItMatters":"اثر پاسخ بر تصمیم STP، کانال، قیمت یا KPI",
+    "expectedAnswerType":"choice",
+    "options":["گزینه اختصاصی اول","گزینه اختصاصی دوم"],
+    "required":true,
+    "priority":"بالا",
+    "decisionImpact":"segmentation"
+  }],
+  "optionalQuestions":[],
+  "assumptionsIfProceeding":[]
+}
 
 CONTEXT NOTES
-${contextNotes}
-
-CLARIFICATION INSTRUCTIONS
-- Detect missing, vague, contradictory, unrealistic, suspicious, nonsense, or low-value information.
-- Ask only questions that materially improve the final marketing plan.
-- Every question must affect one of these decision areas: ${decisionImpactValues.join(', ')}.
-- Every question must include priority: "high", "medium", or "low".
-- Every question must include decisionImpact using exactly one allowed value.
-- Questions must be specific, business-useful, and answerable.
-- Avoid generic questions that the original form already answered.
-- Do not ask unnecessary questions just to fill a quota.
-- If input is nonsense, suspicious, contradictory, or very low-value, ask diagnostic questions instead of pretending it is enough.
-- Ask at most 2 required questions and at most 1 optional question.
-- If the input is genuinely sufficient, return mode "ready_for_plan" and keep requiredQuestions empty.
-- If important information is missing, return mode "needs_clarification".
-- Output Persian-first professional JSON only.
-- Every string value must be concise Persian plain text.
-- Do not include markdown, comments, code fences, or explanations outside JSON.
-
-OUTPUT CONTRACT
-Return valid JSON matching ClarifyingQuestionsResponse:
-Use exactly these top-level keys and no others: mode, inputQualityScore, diagnosis, missingInformation, requiredQuestions, optionalQuestions, assumptionsIfProceeding.
-{
-  "mode": "needs_clarification",
-  "inputQualityScore": 0,
-  "diagnosis": "string",
-  "missingInformation": ["string"],
-  "requiredQuestions": [
-    {
-      "id": "target-customer-specificity",
-      "question": "سوال مشخص و قابل پاسخ",
-      "whyItMatters": "توضیح دهید پاسخ چگونه تصمیم بازاریابی را تغییر می‌دهد",
-      "expectedAnswerType": "text",
-      "options": ["string"],
-      "required": true,
-      "priority": "high",
-      "decisionImpact": "segmentation"
-    }
-  ],
-  "optionalQuestions": [],
-  "assumptionsIfProceeding": ["string"]
-}
+${list(args.contextNotes)}
 `.trim()
 }
 
 export function buildFinalMarketingPlanPrompt(args: BuildFinalMarketingPlanPromptArgs): string {
-  const businessInput = serializeForPrompt(args.businessInput)
-  const clarifyingAnswers = serializeForPrompt(args.clarifyingAnswers ?? {})
-  const assumptions = formatList(args.assumptions)
-  const contextNotes = formatList(args.contextNotes)
-  const requiredSections = requiredMarketingPlanSections
-    .map((section) => `${section.id}. ${section.title}`)
-    .join('\n')
-
   return `
-You are MarketPilot AI, a Persian-first marketing planning analyst.
-
-TASK
-Generate the final structured marketing plan using the user form input, clarifying answers, course knowledge, and strict rules.
+TASK: Produce a strategic enhancement patch for the deterministic baseline. Improve selected strategic decisions; do not rewrite the full 17-section report.
 
 BUSINESS INPUT
-${businessInput}
+${serialize(args.businessInput)}
 
 CLARIFYING ANSWERS
-${clarifyingAnswers}
+${serialize(args.clarifyingAnswers ?? {})}
 
-ASSUMPTIONS ALLOWED ONLY IF NEEDED
-${assumptions}
+DETERMINISTIC BASELINE PLAN
+${serialize(args.baselinePlan)}
 
-COURSE KNOWLEDGE
-${compactMarketingKnowledge}
+COURSE RULES
+${courseRules}
 
-REQUIRED 17 SECTIONS
-Return exactly these 17 sections with exact ids and titles:
-${requiredSections}
+REQUIREMENTS
+- Ground every recommendation in the business input, clarifying answers, or a clearly named assumption.
+- Be specific to the product, customer problem, budget, stage, existing channels, competitors, pricing, and goal.
+- Avoid templates, filler, generic marketing advice, and repeated sentences.
+- Do not repeat the app name as content.
+- All user-visible text must be concise professional Persian; KPI, USP, STP, 7P and standard stage/element identifiers may remain English.
+- Priority values must be exactly بالا, متوسط, or پایین; never high, medium, or low.
+- All seven 7P elements and all four funnel stages must appear exactly once.
+- Risks must include concrete validation tests.
+- Output only one JSON object. No markdown, code fences, or prose outside JSON.
+${args.repairIssues?.length ? `- Repair all of these prior quality issues:\n${list(args.repairIssues)}` : ''}
+
+EXACT PATCH JSON SHAPE
+{
+  "summaryInsight":"بینش اختصاصی و کوتاه",
+  "segments":[{"name":"نام بخش","problem":"مسئله مشخص","accessChannel":"مسیر دسترسی","willingnessToPay":"منطق توان پرداخت","priority":"بالا"}],
+  "primaryTarget":{"name":"بخش اولویت‌دار","reason":"دلیل انتخاب","whyNow":"دلیل اولویت زمانی"},
+  "positioningStatement":"بیانیه جایگاه‌یابی مشخص",
+  "personas":[{"name":"نام پرسونا","role":"نقش","pain":"درد","trigger":"محرک","objection":"اعتراض","message":"پیام"}],
+  "usp":"پیشنهاد فروش منحصربه‌فرد و قابل دفاع",
+  "competitors":[{"name":"رقیب یا جایگزین","type":"نوع","strength":"قوت","weakness":"ضعف","howToDifferentiate":"روش تمایز"}],
+  "marketingMix7P":[{"element":"Product|Price|Place|Promotion|People|Process|Physical Evidence","recommendation":"توصیه مشخص","reason":"دلیل"}],
+  "funnel":[{"stage":"Awareness|Consideration|Conversion|Retention","action":"اقدام","channel":"کانال","metric":"معیار"}],
+  "digitalChannels":[{"channel":"کانال","priority":"بالا","reason":"دلیل","firstExperiment":"آزمایش نخست"}],
+  "pricingRecommendation":{"recommendedModel":"مدل قیمت","reason":"دلیل","introOffer":"پیشنهاد آغازین","risk":"ریسک"},
+  "kpis":[{"name":"KPI","target":"هدف","measurement":"روش سنجش","whyItMatters":"اهمیت","channel":"کانال"}],
+  "thirtyDayPlan":[{"week":"هفته ۱","actions":["اقدام مشخص اول","اقدام مشخص دوم"],"successMetric":"معیار موفقیت"}],
+  "risks":[{"risk":"ریسک واقعی","assumption":"فرض","validationTest":"آزمون اعتبارسنجی"}],
+  "qualityRationale":"دلیل کوتاه کیفیت و محدودیت تحلیل"
+}
+
+MINIMUM COUNTS: segments 3; personas 2; competitors 3; marketingMix7P 7; funnel 4; digitalChannels 3; kpis 3; thirtyDayPlan 4; risks 2.
 
 CONTEXT NOTES
-${contextNotes}
-
-FINAL PLAN INSTRUCTIONS
-- Generate a practical 17-section marketing plan.
-- sections.length must be exactly 17.
-- language must be exactly "fa".
-- Avoid generic filler and essay-like output.
-- Keep every field concise. Use short Persian plain-text strings, never long paragraphs.
-- Be Persian-first and professional.
-- Use English only for standard terms and acronyms such as KPI, USP, CAC, ROI, CTR, SEO, LTV, PPC.
-- Every recommendation must include logic from input or an explicit assumption.
-- Use structured content for important sections where useful, especially sections 3, 6, 10, 11, 12, 14, 15, and 17.
-- Section 3 should use AISegmentCard-like objects when possible.
-- Section 6 should use AIPersonaCard-like objects when possible.
-- Section 10 should use AI7PItem-like objects.
-- Section 11 should use AIFunnelStageItem-like objects.
-- Section 12 must use AIChannelRecommendation-like objects with channel, funnelStage, goal, action, kpi, risk, and budgetFit.
-- KPI dashboard must use KPI objects with formula or method, target, channel, reviewFrequency, and riskOrCaution.
-- The 30-day action plan must be weekly, executable, and measurable.
-- qualityScore must be an object, not a plain number.
-- State assumptions clearly.
-- Do not overpromise results.
-- Output valid JSON only, matching AIFinalMarketingPlanResponse.
-- No markdown outside JSON. No explanations outside JSON.
-- Fit the complete response within 1800 output tokens.
-
-STRUCTURED CONTENT SHAPES
-AIChannelRecommendation:
-{ "channel": "string", "funnelStage": "string", "goal": "string", "action": "string", "kpi": "string", "risk": "string", "budgetFit": "string" }
-
-AI7PItem:
-{ "element": "string", "diagnosis": "string", "recommendation": "string", "action": "string" }
-
-AIFunnelStageItem:
-{ "stage": "string", "customerMindset": "string", "action": "string", "channel": "string", "kpi": "string" }
-
-AISegmentCard:
-{ "segmentName": "string", "description": "string", "pain": "string", "accessPath": "string", "willingnessToPay": "string", "priority": "high" }
-
-AIPersonaCard:
-{ "name": "string", "profile": "string", "needs": ["string"], "objections": ["string"], "trigger": "string", "message": "string" }
-
-OUTPUT CONTRACT
-Return valid JSON matching AIFinalMarketingPlanResponse:
-Use exactly these top-level keys and no others: businessName, language, planType, inputQualityDiagnosis, assumptions, sections, kpis, actionPlan30Days, risks, qualityScore.
-Every one of the 17 section objects must contain exactly id, title, contentType, and content.
-{
-  "businessName": "string",
-  "language": "fa",
-  "planType": "AI-assisted marketing plan",
-  "inputQualityDiagnosis": "string",
-  "assumptions": ["string"],
-  "sections": [
-    {
-      "id": 1,
-      "title": "خلاصه کسب‌وکار",
-      "contentType": "paragraph",
-      "content": "string or structured content"
-    },
-    {
-      "id": 12,
-      "title": "استراتژی کانال دیجیتال",
-      "contentType": "cards",
-      "content": [
-        {
-          "channel": "string",
-          "funnelStage": "string",
-          "goal": "string",
-          "action": "string",
-          "kpi": "string",
-          "risk": "string",
-          "budgetFit": "string"
-        }
-      ]
-    }
-  ],
-  "kpis": [
-    {
-      "name": "string",
-      "reason": "string",
-      "formula": "string",
-      "target": "string",
-      "channel": "string",
-      "reviewFrequency": "string",
-      "riskOrCaution": "string"
-    }
-  ],
-  "actionPlan30Days": [
-    {
-      "week": 1,
-      "focus": "string",
-      "actions": ["string"],
-      "successMetric": "string"
-    }
-  ],
-  "risks": ["string"],
-  "qualityScore": {
-    "score": 0,
-    "strengths": ["string"],
-    "weaknesses": ["string"],
-    "missingInputs": ["string"],
-    "improvementSuggestions": ["string"]
-  }
-}
+${list(args.contextNotes)}
 `.trim()
 }
 
-function serializeForPrompt(value: PromptValue): string {
-  if (value === null || value === undefined) return '{}'
-  if (typeof value === 'string') return value.trim() || '{}'
-
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
+function serialize(value: PromptValue): string {
+  try { return JSON.stringify(value ?? {}, null, 2) } catch { return '{}' }
 }
 
-function formatList(values: string[] | undefined): string {
-  if (!values || values.length === 0) return '- none'
-  return values.map((value) => `- ${value}`).join('\n')
+function list(values: string[] | undefined): string {
+  return values?.length ? values.map((value) => `- ${value}`).join('\n') : '- none'
 }

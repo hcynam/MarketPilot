@@ -40,6 +40,22 @@ const keyLabelMap: Record<string, string> = {
   weaknesses: 'نقاط ضعف',
   missingInputs: 'ورودی‌های ناقص',
   improvementSuggestions: 'پیشنهادهای بهبود',
+  problem: 'مسئله',
+  accessChannel: 'مسیر دسترسی',
+  role: 'نقش',
+  type: 'نوع',
+  strength: 'نقطه قوت',
+  weakness: 'نقطه ضعف',
+  howToDifferentiate: 'روش تمایز',
+  reason: 'دلیل',
+  firstExperiment: 'آزمایش نخست',
+  recommendedModel: 'مدل پیشنهادی',
+  introOffer: 'پیشنهاد آغازین',
+  assumption: 'فرض',
+  validationTest: 'آزمون اعتبارسنجی',
+  measurement: 'روش سنجش',
+  whyItMatters: 'اهمیت',
+  metric: 'معیار',
 }
 
 const incompleteSectionText =
@@ -221,7 +237,11 @@ function humanizeKey(key: string): string {
 }
 
 function clean(value: string): string {
-  return value.replace(/<[^>]*>/g, '').trim()
+  const cleaned = value.replace(/<[^>]*>/g, '').replace(/^موضوع:\s*/i, '').trim()
+  if (cleaned === 'high') return 'بالا'
+  if (cleaned === 'medium') return 'متوسط'
+  if (cleaned === 'low') return 'پایین'
+  return cleaned
 }
 
 function readString(value: unknown): string {

@@ -12,9 +12,9 @@ interface Props {
 }
 
 const priorityLabels: Record<ClarifyingQuestion['priority'], string> = {
-  high: 'اولویت بالا',
-  medium: 'اولویت متوسط',
-  low: 'اولویت پایین',
+  'بالا': 'اولویت بالا',
+  'متوسط': 'اولویت متوسط',
+  'پایین': 'اولویت پایین',
 }
 
 const impactLabels: Record<ClarifyingQuestion['decisionImpact'], string> = {
@@ -183,6 +183,7 @@ function QuestionField({
     <div className={`clarify__question ${invalid ? 'clarify__question--invalid' : ''}`}>
       <div className="clarify__question-head">
         <h3>
+          {question.label && <span className="clarify__question-label">{question.label}: </span>}
           {question.question}
           {question.required && <span className="clarify__required"> *</span>}
         </h3>

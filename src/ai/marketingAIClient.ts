@@ -2,6 +2,7 @@ import type {
   AIFinalMarketingPlanResponse,
   ClarifyingQuestionsResponse,
 } from '../../netlify/functions/_shared/marketingSchemas'
+import type { MarketingPlan } from '../types'
 
 type MarketingAiMode = 'questions' | 'plan'
 
@@ -18,15 +19,22 @@ interface FunctionErrorResponse {
   providerErrorMessage?: string
   modelUsed?: string
   attempt?: 'json_mode' | 'raw_json_retry'
-  validationStage?: 'questions' | 'plan'
+  validationStage?: 'questions' | 'plan' | 'plan-patch'
   validationIssues?: string[]
   receivedTopLevelKeys?: string[]
+  patchTopLevelKeys?: string[]
+  qualityIssues?: string[]
+  planSource?: 'ai-enhanced' | 'internal-fallback'
 }
 
 interface FunctionSuccessResponse<T> {
   ok: true
   mode: MarketingAiMode
   data: T
+  planSource?: 'ai-enhanced' | 'internal-fallback'
+  provider?: string
+  modelUsed?: string
+  qualityIssues?: string[]
 }
 
 export interface AIClientFailure {
@@ -41,14 +49,21 @@ export interface AIClientFailure {
   providerErrorMessage?: string
   modelUsed?: string
   attempt?: 'json_mode' | 'raw_json_retry'
-  validationStage?: 'questions' | 'plan'
+  validationStage?: 'questions' | 'plan' | 'plan-patch'
   validationIssues?: string[]
   receivedTopLevelKeys?: string[]
+  patchTopLevelKeys?: string[]
+  qualityIssues?: string[]
+  planSource?: 'ai-enhanced' | 'internal-fallback'
 }
 
 export interface AIClientSuccess<T> {
   ok: true
   data: T
+  planSource?: 'ai-enhanced' | 'internal-fallback'
+  provider?: string
+  modelUsed?: string
+  qualityIssues?: string[]
 }
 
 export type AIClientResult<T> = AIClientSuccess<T> | AIClientFailure
@@ -62,6 +77,7 @@ export interface RequestFinalMarketingPlanArgs {
   businessInput: Record<string, unknown>
   clarifyingAnswers?: Record<string, unknown>
   assumptions?: string[]
+  baselinePlan: MarketingPlan
   contextNotes?: string[]
 }
 
@@ -85,6 +101,7 @@ export function requestFinalMarketingPlan(
     businessInput: args.businessInput,
     clarifyingAnswers: args.clarifyingAnswers,
     assumptions: args.assumptions,
+    baselinePlan: args.baselinePlan,
     contextNotes: args.contextNotes,
   })
 }
@@ -134,6 +151,9 @@ async function postMarketingAI<T>(payload: Record<string, unknown>): Promise<AIC
       validationStage: error.validationStage,
       validationIssues: error.validationIssues,
       receivedTopLevelKeys: error.receivedTopLevelKeys,
+      patchTopLevelKeys: error.patchTopLevelKeys,
+      qualityIssues: error.qualityIssues,
+      planSource: error.planSource,
     }
 
     logProviderDiagnostic(failure)
@@ -144,6 +164,10 @@ async function postMarketingAI<T>(payload: Record<string, unknown>): Promise<AIC
   return {
     ok: true,
     data: json.data,
+    planSource: json.planSource,
+    provider: json.provider,
+    modelUsed: json.modelUsed,
+    qualityIssues: json.qualityIssues,
   }
 }
 
@@ -182,9 +206,12 @@ function readFunctionError(value: unknown): FunctionErrorResponse {
     providerErrorMessage: typeof value.providerErrorMessage === 'string' ? value.providerErrorMessage : undefined,
     modelUsed: typeof value.modelUsed === 'string' ? value.modelUsed : undefined,
     attempt: value.attempt === 'json_mode' || value.attempt === 'raw_json_retry' ? value.attempt : undefined,
-    validationStage: value.validationStage === 'questions' || value.validationStage === 'plan' ? value.validationStage : undefined,
+    validationStage: value.validationStage === 'questions' || value.validationStage === 'plan' || value.validationStage === 'plan-patch' ? value.validationStage : undefined,
     validationIssues: readStringArray(value.validationIssues),
     receivedTopLevelKeys: readStringArray(value.receivedTopLevelKeys),
+    patchTopLevelKeys: readStringArray(value.patchTopLevelKeys),
+    qualityIssues: readStringArray(value.qualityIssues),
+    planSource: value.planSource === 'ai-enhanced' || value.planSource === 'internal-fallback' ? value.planSource : undefined,
   }
 }
 
@@ -194,6 +221,9 @@ function logProviderDiagnostic(error: AIClientFailure) {
       validationStage: error.validationStage,
       validationIssues: error.validationIssues,
       receivedTopLevelKeys: error.receivedTopLevelKeys,
+      patchTopLevelKeys: error.patchTopLevelKeys,
+      qualityIssues: error.qualityIssues,
+      planSource: error.planSource,
       modelUsed: error.modelUsed,
     })
     return

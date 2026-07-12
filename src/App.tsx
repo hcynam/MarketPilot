@@ -20,6 +20,7 @@ import {
   generateFallbackMarketingPlan,
 } from './ai/fallbackPlan'
 import type { BusinessInput, MarketingPlan } from './types'
+import { generateMarketingPlan } from './engine/orchestrator'
 import type { ClarifyingQuestionsResponse } from '../netlify/functions/_shared/marketingSchemas'
 import './App.css'
 
@@ -74,22 +75,22 @@ function App() {
 
   const requestAndRenderFinalPlan = useCallback(async ({
     input,
-    brief,
     clarifyingAnswers,
     assumptions,
   }: {
     input: BusinessInput
-    brief: MarketingBusinessBrief
     clarifyingAnswers?: ClarifyingAnswers
     assumptions?: string[]
   }) => {
     setAiStatus('generating_plan')
+    const baselinePlan = generateMarketingPlan(input)
 
     try {
       const result = await requestFinalMarketingPlan({
-        businessInput: brief as unknown as Record<string, unknown>,
+        businessInput: input as unknown as Record<string, unknown>,
         clarifyingAnswers: clarifyingAnswers as Record<string, unknown> | undefined,
         assumptions,
+        baselinePlan,
       })
 
       if (!result.ok) {
@@ -97,6 +98,21 @@ function App() {
           ? validationFallbackMessage
           : fallbackMarketingPlanMessage
         applyFallback(input, result.errorCode, message)
+        return
+      }
+
+      if (result.planSource === 'internal-fallback') {
+        console.warn('AI patch quality diagnostic', {
+          errorCode: 'AI_PATCH_REJECTED',
+          provider: result.provider,
+          modelUsed: result.modelUsed,
+          mode: 'plan',
+          validationIssues: [],
+          qualityIssues: result.qualityIssues ?? [],
+          patchTopLevelKeys: [],
+          planSource: result.planSource,
+        })
+        applyFallback(input, 'AI_PATCH_REJECTED')
         return
       }
 
@@ -150,7 +166,6 @@ function App() {
 
       await requestAndRenderFinalPlan({
         input: inputSnapshot,
-        brief,
         assumptions: result.data.assumptionsIfProceeding,
       })
     } finally {
@@ -174,7 +189,6 @@ function App() {
     try {
       await requestAndRenderFinalPlan({
         input: lastInputSnapshot,
-        brief: lastBusinessBrief,
         clarifyingAnswers: answers,
         assumptions: clarifyingResponse?.assumptionsIfProceeding,
       })
@@ -293,6 +307,8 @@ function getAIStatusMessage(
       return 'در حال تولید برنامه بازاریابی هوشمند...'
     case 'fallback':
       return fallbackMessage || fallbackMarketingPlanMessage
+    case 'complete':
+      return 'برنامه با تحلیل هوشمند Groq تقویت شد.'
     case 'error':
       return aiErrorMessage
     default:

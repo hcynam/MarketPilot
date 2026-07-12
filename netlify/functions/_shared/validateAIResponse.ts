@@ -23,7 +23,7 @@ const validQuestionAnswerTypes = new Set<ClarifyingQuestionExpectedAnswerType>([
   'choice',
   'multiChoice',
 ])
-const validQuestionPriorities = new Set<ClarifyingQuestionPriority>(['high', 'medium', 'low'])
+const validQuestionPriorities = new Set<ClarifyingQuestionPriority>(['بالا', 'متوسط', 'پایین'])
 const validDecisionImpacts = new Set<ClarifyingDecisionImpact>([
   'segmentation',
   'positioning',
@@ -98,12 +98,12 @@ export function validateClarifyingQuestionsResponse(data: unknown): ValidationRe
   const requiredCount = Array.isArray(data.requiredQuestions) ? data.requiredQuestions.length : 0
   const optionalCount = Array.isArray(data.optionalQuestions) ? data.optionalQuestions.length : 0
 
-  if (data.mode === 'needs_clarification' && (requiredCount < 1 || requiredCount > 2)) {
-    errors.push('requiredQuestions must contain 1-2 questions when mode is needs_clarification.')
+  if (data.mode === 'needs_clarification' && (requiredCount < 1 || requiredCount > 3)) {
+    errors.push('requiredQuestions must contain 1-3 questions when mode is needs_clarification.')
   }
 
-  if (requiredCount > 2) {
-    errors.push('requiredQuestions must not contain more than 2 questions.')
+  if (requiredCount > 3) {
+    errors.push('requiredQuestions must not contain more than 3 questions.')
   }
 
   if (optionalCount > 1) {
@@ -271,6 +271,12 @@ function validateQuestion(question: unknown, path: string, errors: string[]): vo
   if (!isMeaningfulString(question.id, 2)) {
     errors.push(`${path}.id must be a non-empty string.`)
   }
+  if (!isMeaningfulString(question.label, 2)) {
+    errors.push(`${path}.label must be a non-empty Persian label.`)
+  }
+  if (!hasPersianText(question.label) || !hasPersianText(question.question) || !hasPersianText(question.whyItMatters)) {
+    errors.push(`${path} user-visible label, question, and whyItMatters must be Persian.`)
+  }
   if (!isMeaningfulString(question.question, 18)) {
     errors.push(`${path}.question must be specific and meaningful.`)
   }
@@ -287,7 +293,7 @@ function validateQuestion(question: unknown, path: string, errors: string[]): vo
   }
 
   if (typeof question.priority !== 'string' || !validQuestionPriorities.has(question.priority as ClarifyingQuestionPriority)) {
-    errors.push(`${path}.priority must be high, medium, or low.`)
+    errors.push(`${path}.priority must be بالا, متوسط, or پایین.`)
   }
 
   if (typeof question.decisionImpact !== 'string' || !validDecisionImpacts.has(question.decisionImpact as ClarifyingDecisionImpact)) {
@@ -412,6 +418,10 @@ function isMeaningfulString(value: unknown, minLength: number): value is string 
 
 function isNumberInRange(value: unknown, min: number, max: number): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
+}
+
+function hasPersianText(value: unknown): boolean {
+  return typeof value === 'string' && /[\u0600-\u06ff]/.test(value)
 }
 
 function hasMeaningfulContent(value: unknown): boolean {

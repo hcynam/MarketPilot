@@ -47,6 +47,8 @@ Covers 17 core marketing concepts as an applied software project:
 
 ## AI and Deployment Notes
 
+The production AI path uses a hybrid architecture: the existing deterministic engine first creates a complete 17-section baseline in the browser, Groq returns a smaller strategic enhancement patch, and the Netlify Function validates and deterministically merges that patch. A post-merge quality gate allows one patch-only repair retry; if quality still fails, the baseline remains the final report. The form, report renderer, KPI dashboard, and Markdown/Word/PDF/print exports keep their existing contracts.
+
 - Groq calls run through `/.netlify/functions/marketing-ai` using `qwen/qwen3-32b` by default.
 - `GROQ_API_KEY` is server-side only and must be stored as a Netlify Secret.
 - `GROQ_MODEL`, `AI_PROVIDER`, and `AI_PROVIDER_TIMEOUT_MS` are normal non-secret Netlify variables.
@@ -55,6 +57,7 @@ Covers 17 core marketing concepts as an applied software project:
 - Local Vite dev without a Netlify Function environment may trigger the fallback engine.
 - For full AI testing, use a Netlify deployment or a Netlify local function environment.
 - See `NETLIFY_ENV_SETUP.md`, `docs/DEPLOYMENT_READINESS_CHECKLIST.md`, and `docs/AI_FINAL_QA_SCENARIOS.md`.
+- Use `docs/AI_HYBRID_QA_CHECKLIST.md` for the five required hybrid release scenarios.
 
 ## How to Run Locally
 

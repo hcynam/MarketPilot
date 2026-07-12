@@ -1,5 +1,5 @@
 export type ClarifyingQuestionExpectedAnswerType = 'text' | 'number' | 'choice' | 'multiChoice'
-export type ClarifyingQuestionPriority = 'high' | 'medium' | 'low'
+export type ClarifyingQuestionPriority = 'بالا' | 'متوسط' | 'پایین'
 export type ClarifyingDecisionImpact =
   | 'segmentation'
   | 'positioning'
@@ -15,6 +15,7 @@ export type ClarifyingDecisionImpact =
 
 export interface ClarifyingQuestion {
   id: string
+  label: string
   question: string
   whyItMatters: string
   expectedAnswerType: ClarifyingQuestionExpectedAnswerType
@@ -164,4 +165,3 @@ export const requiredMarketingPlanSections = [
 ] as const
 
 export type RequiredMarketingPlanSectionId = typeof requiredMarketingPlanSections[number]['id']
-
