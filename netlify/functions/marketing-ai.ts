@@ -31,24 +31,30 @@ interface FunctionEvent {
   isBase64Encoded?: boolean
 }
 
-const defaultModel = 'gemini-2.5-flash'
+const openRouterEndpoint = 'https://openrouter.ai/api/v1/chat/completions'
+const defaultModel = 'openrouter/free'
+const defaultSiteUrl = 'https://visionary-jalebi-345b75.netlify.app'
+const defaultAppName = 'MarketPilot AI'
+const providerTimeoutMs = 25000
 const maxRequestBodyChars = 40000
 const maxPromptChars = 30000
 const maxProviderErrorMessageChars = 300
 
-interface GeminiProviderDiagnostic {
+interface OpenRouterProviderDiagnostic {
+  provider: 'openrouter'
   providerStatus: number
   providerStatusText: string
-  providerErrorStatus?: string
+  providerErrorCode?: string
   providerErrorMessage?: string
   modelUsed: string
+  mode: MarketingAiMode
 }
 
-class GeminiProviderError extends Error {
-  diagnostic: GeminiProviderDiagnostic
+class OpenRouterProviderError extends Error {
+  diagnostic: OpenRouterProviderDiagnostic
 
-  constructor(diagnostic: GeminiProviderDiagnostic) {
-    super('GEMINI_PROVIDER_ERROR')
+  constructor(diagnostic: OpenRouterProviderDiagnostic) {
+    super('OPENROUTER_PROVIDER_ERROR')
     this.diagnostic = diagnostic
   }
 }
@@ -101,11 +107,11 @@ export async function handler(event: FunctionEvent) {
     })
   }
 
-  if (!process.env.GEMINI_API_KEY) {
+  if (!process.env.OPENROUTER_API_KEY) {
     return jsonResponse(500, {
       ok: false,
       mode: payload.mode,
-      errorCode: 'MISSING_GEMINI_API_KEY',
+      errorCode: 'MISSING_OPENROUTER_API_KEY',
       errorMessage: 'AI service is not configured on the server.',
     })
   }
@@ -215,33 +221,34 @@ async function generateAndValidate(args: {
   let responseJson: unknown
 
   try {
-    responseJson = await callGemini(args.prompt)
+    responseJson = await callOpenRouter(args.prompt, args.mode)
   } catch (error) {
-    if (isGeminiTimeoutError(error)) {
+    if (isOpenRouterTimeoutError(error)) {
       return {
         statusCode: 504,
         payload: {
           ok: false,
           mode: args.mode,
-          errorCode: 'GEMINI_TIMEOUT',
+          errorCode: 'OPENROUTER_REQUEST_FAILED',
           errorMessage: 'AI service timed out. Please try again later.',
         },
       }
     }
 
-    if (isGeminiProviderError(error)) {
+    if (isOpenRouterProviderError(error)) {
+      const errorCode = providerErrorCodeForStatus(error.diagnostic.providerStatus)
       const diagnosticPayload = {
         ok: false,
         mode: args.mode,
-        errorCode: 'GEMINI_REQUEST_FAILED',
+        errorCode,
         errorMessage: 'AI service did not return a usable response. Please try again later.',
         ...error.diagnostic,
       }
 
-      console.error('Gemini provider diagnostic', diagnosticPayload)
+      console.error('OpenRouter provider diagnostic', diagnosticPayload)
 
       return {
-        statusCode: 502,
+        statusCode: error.diagnostic.providerStatus === 429 ? 429 : 502,
         payload: diagnosticPayload,
       }
     }
@@ -251,7 +258,7 @@ async function generateAndValidate(args: {
       payload: {
         ok: false,
         mode: args.mode,
-        errorCode: 'GEMINI_REQUEST_FAILED',
+        errorCode: 'OPENROUTER_REQUEST_FAILED',
         errorMessage: 'AI service did not return a usable response. Please try again later.',
       },
     }
@@ -259,14 +266,14 @@ async function generateAndValidate(args: {
 
   let text: string
   try {
-    text = extractGeminiText(responseJson)
+    text = extractOpenRouterText(responseJson)
   } catch {
     return {
       statusCode: 502,
       payload: {
         ok: false,
         mode: args.mode,
-        errorCode: 'GEMINI_EMPTY_RESPONSE',
+        errorCode: 'OPENROUTER_REQUEST_FAILED',
         errorMessage: 'AI service returned an empty response.',
       },
     }
@@ -310,46 +317,52 @@ async function generateAndValidate(args: {
   }
 }
 
-async function callGemini(prompt: string): Promise<unknown> {
-  const apiKey = process.env.GEMINI_API_KEY
+async function callOpenRouter(prompt: string, mode: MarketingAiMode): Promise<unknown> {
+  const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
-    throw new Error('Missing Gemini API key')
+    throw new Error('Missing OpenRouter API key')
   }
 
-  const model = normalizeGeminiModel(process.env.GEMINI_MODEL || defaultModel)
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`
-  const geminiTimeoutMs = Number(process.env.GEMINI_TIMEOUT_MS || 25000)
+  const model = normalizeOpenRouterModel(process.env.OPENROUTER_MODEL)
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), geminiTimeoutMs)
+  const timeout = setTimeout(() => controller.abort(), providerTimeoutMs)
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(openRouterEndpoint, {
       method: 'POST',
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'HTTP-Referer': process.env.OPENROUTER_SITE_URL || defaultSiteUrl,
+        'X-OpenRouter-Title': process.env.OPENROUTER_APP_NAME || defaultAppName,
       },
       body: JSON.stringify({
-        contents: [
+        model,
+        messages: [
           {
-            parts: [{ text: prompt }],
+            role: 'system',
+            content: 'You are MarketPilot AI, a Persian-first expert marketing planning assistant. Return valid JSON only.',
+          },
+          {
+            role: 'user',
+            content: prompt,
           },
         ],
-        generationConfig: {
-          temperature: 0.3,
-          responseMimeType: 'application/json',
-        },
+        temperature: mode === 'questions' ? 0.2 : 0.35,
+        max_tokens: mode === 'questions' ? 1200 : 3500,
+        response_format: { type: 'json_object' },
       }),
     })
 
     if (!response.ok) {
-      throw new GeminiProviderError(await buildProviderDiagnostic(response, model))
+      throw new OpenRouterProviderError(await buildProviderDiagnostic(response, model, mode))
     }
 
     return response.json()
   } catch (error) {
     if (isAbortError(error)) {
-      throw new Error('GEMINI_TIMEOUT')
+      throw new Error('OPENROUTER_TIMEOUT')
     }
 
     throw error
@@ -358,33 +371,27 @@ async function callGemini(prompt: string): Promise<unknown> {
   }
 }
 
-function extractGeminiText(responseJson: unknown): string {
+function extractOpenRouterText(responseJson: unknown): string {
   if (!isRecord(responseJson)) {
-    throw new Error('Gemini response must be an object')
+    throw new Error('OpenRouter response must be an object')
   }
 
-  const candidates = responseJson.candidates
-  if (!Array.isArray(candidates) || candidates.length === 0) {
-    throw new Error('Gemini response has no candidates')
+  const choices = responseJson.choices
+  if (!Array.isArray(choices) || choices.length === 0) {
+    throw new Error('OpenRouter response has no choices')
   }
 
-  const firstCandidate = candidates[0]
-  if (!isRecord(firstCandidate) || !isRecord(firstCandidate.content)) {
-    throw new Error('Gemini candidate has no content')
+  const firstChoice = choices[0]
+  if (!isRecord(firstChoice) || !isRecord(firstChoice.message)) {
+    throw new Error('OpenRouter choice has no message')
   }
 
-  const parts = firstCandidate.content.parts
-  if (!Array.isArray(parts)) {
-    throw new Error('Gemini content has no parts')
-  }
-
-  const text = parts
-    .map((part) => (isRecord(part) && typeof part.text === 'string' ? part.text : ''))
-    .join('')
-    .trim()
+  const text = typeof firstChoice.message.content === 'string'
+    ? firstChoice.message.content.trim()
+    : ''
 
   if (!text) {
-    throw new Error('Gemini response text is empty')
+    throw new Error('OpenRouter response text is empty')
   }
 
   return text
@@ -396,22 +403,26 @@ function readOptionalStringArray(value: unknown): string[] | undefined {
   return strings.length > 0 ? strings : undefined
 }
 
-function normalizeGeminiModel(model: string): string {
-  return encodeURIComponent(model.replace(/^models\//, '').trim() || defaultModel)
+function normalizeOpenRouterModel(model: string | undefined): string {
+  const trimmed = (model || '').trim().replace(/^(['"])(.*)\1$/, '$2').trim()
+  return trimmed || defaultModel
 }
 
 async function buildProviderDiagnostic(
   response: Response,
   modelUsed: string,
-): Promise<GeminiProviderDiagnostic> {
+  mode: MarketingAiMode,
+): Promise<OpenRouterProviderDiagnostic> {
   const providerError = parseProviderError(await readProviderErrorBody(response))
 
   return {
+    provider: 'openrouter',
     providerStatus: response.status,
     providerStatusText: response.statusText,
-    providerErrorStatus: providerError.status,
+    providerErrorCode: providerError.code,
     providerErrorMessage: truncateProviderErrorMessage(providerError.message),
     modelUsed,
+    mode,
   }
 }
 
@@ -423,7 +434,7 @@ async function readProviderErrorBody(response: Response): Promise<string> {
   }
 }
 
-function parseProviderError(bodyText: string): { status?: string; message?: string } {
+function parseProviderError(bodyText: string): { code?: string; message?: string } {
   if (!bodyText.trim()) {
     return {}
   }
@@ -436,7 +447,9 @@ function parseProviderError(bodyText: string): { status?: string; message?: stri
 
     const { error } = body
     return {
-      status: typeof error.status === 'string' ? error.status : undefined,
+      code: typeof error.code === 'string' || typeof error.code === 'number'
+        ? String(error.code)
+        : undefined,
       message: typeof error.message === 'string' ? error.message : undefined,
     }
   } catch {
@@ -469,10 +482,16 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
 }
 
-function isGeminiTimeoutError(error: unknown): boolean {
-  return error instanceof Error && error.message === 'GEMINI_TIMEOUT'
+function providerErrorCodeForStatus(status: number): string {
+  if (status === 401 || status === 403) return 'OPENROUTER_AUTH_FAILED'
+  if (status === 429) return 'OPENROUTER_RATE_LIMITED'
+  return 'OPENROUTER_REQUEST_FAILED'
 }
 
-function isGeminiProviderError(error: unknown): error is GeminiProviderError {
-  return error instanceof GeminiProviderError
+function isOpenRouterTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.message === 'OPENROUTER_TIMEOUT'
+}
+
+function isOpenRouterProviderError(error: unknown): error is OpenRouterProviderError {
+  return error instanceof OpenRouterProviderError
 }

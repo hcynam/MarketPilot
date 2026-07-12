@@ -1,10 +1,10 @@
 # MarketPilot AI
 
-A lightweight AI-assisted marketing plan generator for SMEs and digital products. Built as a React + TypeScript + Vite single-page application with a secure Netlify Function boundary for Gemini and a deterministic fallback engine.
+A lightweight AI-assisted marketing plan generator for SMEs and digital products. Built as a React + TypeScript + Vite single-page application with a secure Netlify Function boundary for OpenRouter and a deterministic fallback engine.
 
 ## Why It Was Built
 
-Created as a course project to demonstrate practical application of marketing concepts. It takes structured business/product information and generates a 17-section, academically grounded marketing plan using Gemini when configured, with rule-based fallback when AI is unavailable.
+Created as a course project to demonstrate practical application of marketing concepts. It takes structured business/product information and generates a 17-section, academically grounded marketing plan using OpenRouter when configured, with rule-based fallback when AI is unavailable.
 
 ## Course Relevance — Marketing Course Project
 
@@ -26,7 +26,7 @@ Covers 17 core marketing concepts as an applied software project:
 - Multi-step intake form (5 sections, 18 fields)
 - AI review flow with clarifying questions before final plan generation
 - Two-step AI flow: input-quality review first, final 17-section plan second
-- Server-side Gemini integration through a Netlify Function
+- Server-side OpenRouter integration through a Netlify Function
 - Deterministic fallback marketing plan engine (17 sections)
 - Interactive KPI dashboard (12 editable metrics with toggles)
 - Collapsible sections for easy navigation
@@ -47,9 +47,11 @@ Covers 17 core marketing concepts as an applied software project:
 
 ## AI and Deployment Notes
 
-- Gemini calls run through `/.netlify/functions/marketing-ai`.
-- The Gemini API key must stay in Netlify environment variables and must never be exposed to frontend code.
-- Do not use `VITE_GEMINI_API_KEY` and do not commit a real `.env` file.
+- OpenRouter calls run through `/.netlify/functions/marketing-ai`.
+- `OPENROUTER_API_KEY` is server-side only and must be stored as a Netlify Secret.
+- `OPENROUTER_MODEL`, `OPENROUTER_SITE_URL`, and `OPENROUTER_APP_NAME` are normal non-secret Netlify variables.
+- Do not use `VITE_OPENROUTER_API_KEY` and do not commit a real `.env` file.
+- Free OpenRouter models may be rate-limited and are best suited to demo/testing.
 - Local Vite dev without a Netlify Function environment may trigger the fallback engine.
 - For full AI testing, use a Netlify deployment or a Netlify local function environment.
 - See `NETLIFY_ENV_SETUP.md`, `docs/DEPLOYMENT_READINESS_CHECKLIST.md`, and `docs/AI_FINAL_QA_SCENARIOS.md`.
@@ -57,7 +59,7 @@ Covers 17 core marketing concepts as an applied software project:
 ## How to Run Locally
 
 ```bash
-cd D:\InvestmentPlatform\OpenCodeTest
+cd D:\MarketPilotAI
 npm install
 npm run dev     # Development server
 npm run build   # Production build
@@ -69,8 +71,8 @@ npm run preview # Preview production build
 1. Open the app
 2. Click **Load Sample Case Study**
 3. Click **Generate Marketing Plan**
-4. If Gemini is unavailable locally, the deterministic fallback plan renders safely
-5. If Gemini is configured, answer required clarifying questions when requested
+4. If OpenRouter is unavailable locally, the deterministic fallback plan renders safely
+5. If OpenRouter is configured, answer required clarifying questions when requested
 6. Browse the 17-section collapsible report
 7. Explore the KPI dashboard — toggle metrics, edit targets
 8. Click **Copy as Markdown** to export
@@ -78,7 +80,7 @@ npm run preview # Preview production build
 
 ## Known Limitations
 
-- Gemini generation requires Netlify Function environment variables in deployed/function-enabled environments
+- OpenRouter generation requires Netlify Function environment variables in deployed/function-enabled environments
 - Local Vite dev without the Netlify function falls back to the deterministic engine
 - Generated plans are advisory and should be reviewed before use
 - KPI values are planning assumptions, not real campaign data

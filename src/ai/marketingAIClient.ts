@@ -13,7 +13,8 @@ interface FunctionErrorResponse {
   validationErrors?: string[]
   providerStatus?: number
   providerStatusText?: string
-  providerErrorStatus?: string
+  provider?: string
+  providerErrorCode?: string
   providerErrorMessage?: string
   modelUsed?: string
 }
@@ -31,7 +32,8 @@ export interface AIClientFailure {
   errorCode?: string
   providerStatus?: number
   providerStatusText?: string
-  providerErrorStatus?: string
+  provider?: string
+  providerErrorCode?: string
   providerErrorMessage?: string
   modelUsed?: string
 }
@@ -116,7 +118,8 @@ async function postMarketingAI<T>(payload: Record<string, unknown>): Promise<AIC
       validationErrors: error.validationErrors,
       providerStatus: error.providerStatus,
       providerStatusText: error.providerStatusText,
-      providerErrorStatus: error.providerErrorStatus,
+      provider: error.provider,
+      providerErrorCode: error.providerErrorCode,
       providerErrorMessage: error.providerErrorMessage,
       modelUsed: error.modelUsed,
     }
@@ -162,7 +165,8 @@ function readFunctionError(value: unknown): FunctionErrorResponse {
       : undefined,
     providerStatus: typeof value.providerStatus === 'number' ? value.providerStatus : undefined,
     providerStatusText: typeof value.providerStatusText === 'string' ? value.providerStatusText : undefined,
-    providerErrorStatus: typeof value.providerErrorStatus === 'string' ? value.providerErrorStatus : undefined,
+    provider: typeof value.provider === 'string' ? value.provider : undefined,
+    providerErrorCode: typeof value.providerErrorCode === 'string' ? value.providerErrorCode : undefined,
     providerErrorMessage: typeof value.providerErrorMessage === 'string' ? value.providerErrorMessage : undefined,
     modelUsed: typeof value.modelUsed === 'string' ? value.modelUsed : undefined,
   }
@@ -171,13 +175,14 @@ function readFunctionError(value: unknown): FunctionErrorResponse {
 function logProviderDiagnostic(error: AIClientFailure) {
   if (typeof error.providerStatus !== 'number') return
 
-  console.warn('Gemini provider diagnostic', {
+  console.warn('OpenRouter provider diagnostic', {
     ok: false,
     errorCode: error.errorCode,
     errorMessage: error.errorMessage,
     providerStatus: error.providerStatus,
     providerStatusText: error.providerStatusText,
-    providerErrorStatus: error.providerErrorStatus,
+    provider: error.provider,
+    providerErrorCode: error.providerErrorCode,
     providerErrorMessage: error.providerErrorMessage,
     modelUsed: error.modelUsed,
   })

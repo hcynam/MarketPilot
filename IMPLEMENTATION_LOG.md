@@ -1200,3 +1200,12 @@ Created `CHECKPOINT_PHASE4_BEFORE_FIX.md` capturing current project status, comp
 ### Build Status
 - Shared TypeScript sanity check passed.
 - `cmd /c "npm run build"` passed.
+## OpenRouter Provider Migration - 2026-07-12
+
+**Status:** Complete
+
+- Replaced the Gemini REST runtime in `netlify/functions/marketing-ai.ts` with OpenRouter Chat Completions using dependency-free `fetch`.
+- Preserved the existing function route, questions/plan modes, prompt builders, validators, UI flow, report renderer, exports, and deterministic fallback.
+- Added safe OpenRouter diagnostics and status-specific auth/rate-limit/request error codes without returning credentials or authorization headers.
+- Updated server-only environment setup and marked the previous Gemini production configuration as deprecated.
+- Free OpenRouter models may be rate-limited and are intended for demo/testing.
