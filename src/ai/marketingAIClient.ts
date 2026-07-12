@@ -33,6 +33,7 @@ interface FunctionErrorResponse {
   acceptedPatchAreas?: string[]
   patchQualityScore?: number
   hasBaselinePlan?: boolean
+  hasBaselineDigest?: boolean
   hasClarifyingAnswers?: boolean
   attemptedRepair?: boolean
   rawPreview?: string
@@ -54,9 +55,14 @@ interface FunctionSuccessResponse<T> {
   acceptedPatchAreas?: string[]
   patchQualityScore?: number
   hasBaselinePlan?: boolean
+  hasBaselineDigest?: boolean
   hasClarifyingAnswers?: boolean
   attemptedRepair?: boolean
   errorCode?: string
+  providerStatus?: number
+  providerStatusText?: string
+  providerErrorCode?: string
+  providerErrorMessage?: string
 }
 
 export interface AIClientFailure {
@@ -83,6 +89,7 @@ export interface AIClientFailure {
   acceptedPatchAreas?: string[]
   patchQualityScore?: number
   hasBaselinePlan?: boolean
+  hasBaselineDigest?: boolean
   hasClarifyingAnswers?: boolean
   attemptedRepair?: boolean
   rawPreview?: string
@@ -103,9 +110,14 @@ export interface AIClientSuccess<T> {
   acceptedPatchAreas?: string[]
   patchQualityScore?: number
   hasBaselinePlan?: boolean
+  hasBaselineDigest?: boolean
   hasClarifyingAnswers?: boolean
   attemptedRepair?: boolean
   errorCode?: string
+  providerStatus?: number
+  providerStatusText?: string
+  providerErrorCode?: string
+  providerErrorMessage?: string
 }
 
 export type AIClientResult<T> = AIClientSuccess<T> | AIClientFailure
@@ -227,9 +239,14 @@ async function postMarketingAI<T>(payload: Record<string, unknown>): Promise<AIC
     acceptedPatchAreas: json.acceptedPatchAreas,
     patchQualityScore: json.patchQualityScore,
     hasBaselinePlan: json.hasBaselinePlan,
+    hasBaselineDigest: json.hasBaselineDigest,
     hasClarifyingAnswers: json.hasClarifyingAnswers,
     attemptedRepair: json.attemptedRepair,
     errorCode: json.errorCode,
+    providerStatus: json.providerStatus,
+    providerStatusText: json.providerStatusText,
+    providerErrorCode: json.providerErrorCode,
+    providerErrorMessage: json.providerErrorMessage,
   }
 }
 
@@ -280,6 +297,7 @@ function readFunctionError(value: unknown): FunctionErrorResponse {
     acceptedPatchAreas: readStringArray(value.acceptedPatchAreas),
     patchQualityScore: typeof value.patchQualityScore === 'number' ? value.patchQualityScore : undefined,
     hasBaselinePlan: typeof value.hasBaselinePlan === 'boolean' ? value.hasBaselinePlan : undefined,
+    hasBaselineDigest: typeof value.hasBaselineDigest === 'boolean' ? value.hasBaselineDigest : undefined,
     hasClarifyingAnswers: typeof value.hasClarifyingAnswers === 'boolean' ? value.hasClarifyingAnswers : undefined,
     attemptedRepair: typeof value.attemptedRepair === 'boolean' ? value.attemptedRepair : undefined,
     rawPreview: typeof value.rawPreview === 'string' ? value.rawPreview : undefined,

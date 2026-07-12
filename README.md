@@ -49,6 +49,8 @@ Covers 17 core marketing concepts as an applied software project:
 
 The production AI path uses a hybrid architecture: the existing deterministic engine first creates a complete 17-section baseline in the browser, Groq returns a smaller strategic enhancement patch, and the Netlify Function validates and deterministically merges that patch. A post-merge quality gate allows one patch-only repair retry; if quality still fails, the baseline remains the final report. The form, report renderer, KPI dashboard, and Markdown/Word/PDF/print exports keep their existing contracts.
 
+Only a compact baseline digest is sent onward to Groq; the full baseline remains inside the Function for merging. Complete inputs, including the built-in sample, skip clarification and go directly to final-plan enhancement. Incomplete or strategically ambiguous inputs use the questions flow.
+
 - Groq calls run through `/.netlify/functions/marketing-ai` using `qwen/qwen3-32b` by default.
 - `GROQ_API_KEY` is server-side only and must be stored as a Netlify Secret.
 - `GROQ_MODEL`, `AI_PROVIDER`, and `AI_PROVIDER_TIMEOUT_MS` are normal non-secret Netlify variables.

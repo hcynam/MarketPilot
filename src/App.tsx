@@ -21,6 +21,7 @@ import {
 } from './ai/fallbackPlan'
 import type { BusinessInput, MarketingPlan } from './types'
 import { generateMarketingPlan } from './engine/orchestrator'
+import { isBusinessInputSufficientForDirectPlan } from './ai/inputSufficiency'
 import type { ClarifyingQuestionsResponse } from '../netlify/functions/_shared/marketingSchemas'
 import './App.css'
 
@@ -107,6 +108,10 @@ function App() {
           errorCode: result.errorCode || 'AI_PATCH_REJECTED',
           provider: result.provider,
           modelUsed: result.modelUsed,
+          providerStatus: result.providerStatus,
+          providerStatusText: result.providerStatusText,
+          providerErrorCode: result.providerErrorCode,
+          providerErrorMessage: result.providerErrorMessage,
           mode: 'plan',
           parseStage: result.parseStage,
           patchType: result.patchType,
@@ -116,6 +121,7 @@ function App() {
           qualityIssues: result.qualityIssues ?? [],
           acceptedPatchAreas: result.acceptedPatchAreas ?? [],
           hasBaselinePlan: result.hasBaselinePlan,
+          hasBaselineDigest: result.hasBaselineDigest,
           hasClarifyingAnswers: result.hasClarifyingAnswers,
           attemptedRepair: result.attemptedRepair,
           planSource: result.planSource,
@@ -157,6 +163,11 @@ function App() {
     setAiStatus('reviewing_input')
 
     try {
+      if (isBusinessInputSufficientForDirectPlan(inputSnapshot)) {
+        await requestAndRenderFinalPlan({ input: inputSnapshot })
+        return
+      }
+
       const result = await requestClarifyingQuestions({
         businessInput: brief as unknown as Record<string, unknown>,
       })

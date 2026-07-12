@@ -26,6 +26,14 @@ export interface BaselineMarketingPlan {
   qualityScore: { score: number; maxScore: number; details: string[] }
 }
 
+export interface BaselineDigest {
+  business: Record<string, unknown>
+  productAndCustomer: Record<string, unknown>
+  commercialContext: Record<string, unknown>
+  baselineSignals: Record<string, unknown>
+  clarifyingAnswers: Record<string, unknown>
+}
+
 export interface AIEnhancementPatch {
   summaryInsight: string
   segments: Array<{ name: string; problem: string; accessChannel: string; willingnessToPay: string; priority: PersianPriority }>
@@ -64,8 +72,6 @@ export interface PatchAssessment {
 }
 
 const priorities = new Set<PersianPriority>(['بالا', 'متوسط', 'پایین'])
-const sevenP = ['Product', 'Price', 'Place', 'Promotion', 'People', 'Process', 'Physical Evidence']
-const funnelStages = ['Awareness', 'Consideration', 'Conversion', 'Retention']
 const fillerPatterns = [
   'این بخش بر اساس',
   'نیازمند بازبینی',
@@ -75,10 +81,28 @@ const fillerPatterns = [
 ]
 const wrapperKeys = ['patch', 'aiPatch', 'enhancementPatch', 'marketingPatch', 'data', 'result', 'output']
 export const highValuePatchAreas = [
-  'segments', 'primaryTarget', 'positioningStatement', 'personas', 'usp', 'competitors',
-  'marketingMix7P', 'funnel', 'digitalChannels', 'pricingRecommendation', 'kpis',
-  'thirtyDayPlan', 'risks',
+  'primaryTarget', 'positioningStatement', 'segments', 'usp', 'competitors',
+  'digitalChannels', 'kpis', 'thirtyDayPlan', 'risks',
 ] as const
+
+export function buildBaselineDigest(
+  businessInput: Record<string, unknown>,
+  baseline: BaselineMarketingPlan,
+  clarifyingAnswers: Record<string, unknown>,
+): BaselineDigest {
+  return {
+    business: pick(businessInput, ['businessName', 'businessType', 'marketModel', 'currentStage', 'marketingGoal']),
+    productAndCustomer: pick(businessInput, ['productDescription', 'targetCustomerGuess', 'mainCustomerProblem', 'currentAlternative', 'keyDifferentiation']),
+    commercialContext: pick(businessInput, ['pricingModel', 'currentPrice', 'monthlyBudget', 'teamCapacity', 'availableChannels', 'competitors', 'marketConstraints']),
+    baselineSignals: {
+      targetMarket: oneLine(baseline.targetMarket),
+      usp: oneLine(baseline.usp),
+      kpiNames: baseline.kpiDashboard.map((item) => item.metric).slice(0, 8),
+      actionPlan: baseline.actionPlan.map(oneLine).slice(0, 4),
+    },
+    clarifyingAnswers,
+  }
+}
 
 export function prepareEnhancementPatch(value: unknown): PreparedEnhancementPatch {
   const rawTopLevelKeys = isRecord(value) ? Object.keys(value).slice(0, 30) : []
@@ -133,17 +157,12 @@ export function assessEnhancementPatch(patch: AIEnhancementPatch): PatchAssessme
   const blockingQualityIssues = strictIssues.filter((issue) =>
     issue.includes('repeated filler') || issue.includes('repeats the same') || issue.includes('Priority labels'),
   )
-  const requiredForSafePartial = ['segments', 'thirtyDayPlan', 'risks']
-  const missingCore = requiredForSafePartial.filter((area) => !acceptedPatchAreas.includes(area))
-  const validationIssues = [
-    ...strictIssues,
-    ...missingCore.map((area) => `Partial patch is missing required quality area: ${area}.`),
-  ]
+  const validationIssues = [...strictIssues]
   return {
     acceptedPatchAreas,
     patchQualityScore: Math.round((acceptedPatchAreas.length / highValuePatchAreas.length) * 100),
     validationIssues: unique(validationIssues),
-    usable: acceptedPatchAreas.length >= 4 && missingCore.length === 0 && blockingQualityIssues.length === 0,
+    usable: acceptedPatchAreas.length >= 3 && blockingQualityIssues.length === 0,
   }
 }
 
@@ -194,19 +213,12 @@ export function normalizeEnhancementPatch(value: unknown): unknown {
 export function validateEnhancementPatch(value: unknown): { ok: boolean; errors: string[] } {
   if (!isRecord(value)) return { ok: false, errors: ['Patch must be a JSON object.'] }
   const errors: string[] = []
-  requireText(value.summaryInsight, 'summaryInsight', errors)
   validateRecords(value.segments, 'segments', 3, ['name', 'problem', 'accessChannel', 'willingnessToPay', 'priority'], errors)
   validateObject(value.primaryTarget, 'primaryTarget', ['name', 'reason', 'whyNow'], errors)
   requireText(value.positioningStatement, 'positioningStatement', errors)
-  validateRecords(value.personas, 'personas', 2, ['name', 'role', 'pain', 'trigger', 'objection', 'message'], errors)
   requireText(value.usp, 'usp', errors)
   validateRecords(value.competitors, 'competitors', 3, ['name', 'type', 'strength', 'weakness', 'howToDifferentiate'], errors)
-  validateRecords(value.marketingMix7P, 'marketingMix7P', 7, ['element', 'recommendation', 'reason'], errors)
-  validateNamedCoverage(value.marketingMix7P, 'element', sevenP, 'marketingMix7P', errors)
-  validateRecords(value.funnel, 'funnel', 4, ['stage', 'action', 'channel', 'metric'], errors)
-  validateNamedCoverage(value.funnel, 'stage', funnelStages, 'funnel', errors)
   validateRecords(value.digitalChannels, 'digitalChannels', 3, ['channel', 'priority', 'reason', 'firstExperiment'], errors)
-  validateObject(value.pricingRecommendation, 'pricingRecommendation', ['recommendedModel', 'reason', 'introOffer', 'risk'], errors)
   validateRecords(value.kpis, 'kpis', 3, ['name', 'target', 'measurement', 'whyItMatters', 'channel'], errors)
   validateRecords(value.thirtyDayPlan, 'thirtyDayPlan', 4, ['week', 'successMetric'], errors)
   records(value.thirtyDayPlan).forEach((item, index) => {
@@ -337,9 +349,7 @@ export function evaluateHybridQuality(
   clarifyingAnswers: Record<string, unknown> = {},
 ): string[] {
   const issues: string[] = []
-  for (const requiredArea of ['segments', 'thirtyDayPlan', 'risks']) {
-    if (!acceptedAreas.includes(requiredArea)) issues.push(`Patch quality requires usable ${requiredArea}.`)
-  }
+  if (acceptedAreas.length < 3) issues.push('Patch has fewer than 3 useful strategic areas.')
   const content = JSON.stringify(plan)
   const patchContent = JSON.stringify(patch)
   for (const pattern of fillerPatterns) {
@@ -375,13 +385,9 @@ function getAcceptedPatchAreas(patch: AIEnhancementPatch): string[] {
   if (recordAreaValid(patch.segments, 3, ['name', 'problem', 'accessChannel', 'willingnessToPay', 'priority'])) accepted.push('segments')
   if (objectAreaValid(patch.primaryTarget, ['name', 'reason', 'whyNow'])) accepted.push('primaryTarget')
   if (isUseful(patch.positioningStatement)) accepted.push('positioningStatement')
-  if (recordAreaValid(patch.personas, 2, ['name', 'role', 'pain', 'trigger', 'objection', 'message'])) accepted.push('personas')
   if (isUseful(patch.usp)) accepted.push('usp')
   if (recordAreaValid(patch.competitors, 3, ['name', 'type', 'strength', 'weakness', 'howToDifferentiate'])) accepted.push('competitors')
-  if (recordAreaValid(patch.marketingMix7P, 7, ['element', 'recommendation', 'reason']) && hasCoverage(patch.marketingMix7P, 'element', sevenP)) accepted.push('marketingMix7P')
-  if (recordAreaValid(patch.funnel, 4, ['stage', 'action', 'channel', 'metric']) && hasCoverage(patch.funnel, 'stage', funnelStages)) accepted.push('funnel')
   if (recordAreaValid(patch.digitalChannels, 3, ['channel', 'priority', 'reason', 'firstExperiment'])) accepted.push('digitalChannels')
-  if (objectAreaValid(patch.pricingRecommendation, ['recommendedModel', 'reason', 'introOffer', 'risk'])) accepted.push('pricingRecommendation')
   if (recordAreaValid(patch.kpis, 3, ['name', 'target', 'measurement', 'whyItMatters', 'channel'])) accepted.push('kpis')
   if (recordAreaValid(patch.thirtyDayPlan, 4, ['week', 'successMetric']) && patch.thirtyDayPlan.every((item) => item.actions.length >= 2 && item.actions.every(isUseful))) accepted.push('thirtyDayPlan')
   if (recordAreaValid(patch.risks, 2, ['risk', 'assumption', 'validationTest'])) accepted.push('risks')
@@ -399,11 +405,6 @@ function recordAreaValid(items: Array<Record<string, unknown>>, minimum: number,
 
 function objectAreaValid(item: Record<string, unknown>, keys: string[]): boolean {
   return keys.every((key) => isUseful(clean(item[key])))
-}
-
-function hasCoverage(items: Array<Record<string, unknown>>, key: string, required: string[]): boolean {
-  const names = new Set(items.map((item) => clean(item[key]).toLowerCase()))
-  return required.every((name) => names.has(name.toLowerCase()))
 }
 
 function looksLikePatch(value: Record<string, unknown>): boolean {
@@ -477,11 +478,6 @@ function validateObject(value: unknown, path: string, keys: string[], errors: st
   keys.forEach((key) => requireText(value[key], `${path}.${key}`, errors))
 }
 
-function validateNamedCoverage(value: unknown, key: string, required: string[], path: string, errors: string[]) {
-  const names = new Set(records(value).map((item) => clean(item[key]).toLowerCase()))
-  required.forEach((name) => { if (!names.has(name.toLowerCase())) errors.push(`${path} is missing ${name}.`) })
-}
-
 function requireText(value: unknown, path: string, errors: string[]) {
   if (!isUseful(clean(value))) errors.push(`${path} is missing, too short, or generic.`)
 }
@@ -534,6 +530,14 @@ function clean(value: unknown): string {
 function meaningful(value: unknown, minimum: number, fallback: string): string {
   const normalized = clean(value)
   return normalized.length >= minimum ? normalized : normalized ? `${fallback} ${normalized}` : fallback
+}
+
+function pick(source: Record<string, unknown>, keys: string[]): Record<string, unknown> {
+  return Object.fromEntries(keys.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]))
+}
+
+function oneLine(value: unknown): string {
+  return clean(value).slice(0, 500)
 }
 
 function occurrences(value: string, needle: string): number {

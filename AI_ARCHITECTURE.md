@@ -5,15 +5,15 @@
 Final plan generation is baseline-first:
 
 1. The frontend runs the existing deterministic engine against the exact input snapshot.
-2. It sends `businessInput`, optional `clarifyingAnswers`, and the complete `baselinePlan` to the unchanged `/.netlify/functions/marketing-ai` route.
-3. Groq (`qwen/qwen3-32b`) generates only a compact strategic enhancement patch covering STP, personas, USP, competitors, 7P, funnel, channels, pricing, KPIs, four-week actions, and validated risks.
+2. It sends `businessInput`, optional `clarifyingAnswers`, and the complete `baselinePlan` to the unchanged `/.netlify/functions/marketing-ai` route. The Function retains that baseline for merge but derives a compact `baselineDigest` for the provider prompt.
+3. Groq (`qwen/qwen3-32b`) receives the digest and generates only a compact patch for target, positioning, segments, USP, competitors, channels, KPIs, four-week actions, tested risks, and quality rationale. Personas, 7P, funnel, pricing, and other omitted areas remain deterministic baseline content.
 4. The Function performs shape-only normalization, strict patch validation, and deterministic merge into the baseline.
 5. The merged 17-section response is checked against the existing final response validator and a separate quality gate for filler, repetition, grounding, completeness, Persian priorities, and operational depth.
 6. A failed validation or quality gate permits one patch-only repair retry. A second failure returns the deterministic baseline with `planSource: internal-fallback`.
 
-Patch parsing accepts an unwrapped object or recursively unwraps common provider wrappers (`patch`, `aiPatch`, `enhancementPatch`, `marketingPatch`, `data`, `result`, and `output`). Full-plan-shaped responses are converted into candidate patch areas where possible. Each of 13 high-value areas is scored independently; a safe partial patch enriches only accepted areas while baseline content remains authoritative elsewhere. Complete and partial sources are reported as `ai-enhanced` and `ai-partially-enhanced` respectively.
+Patch parsing accepts an unwrapped object or recursively unwraps common provider wrappers (`patch`, `aiPatch`, `enhancementPatch`, `marketingPatch`, `data`, `result`, and `output`). Full-plan-shaped responses are converted into candidate patch areas where possible. Nine strategic areas are scored independently: 3 usable areas produce `ai-partially-enhanced`, while 5 or more produce `ai-enhanced`. Baseline content remains authoritative for every missing or invalid area.
 
-Rejection diagnostics are never empty. They identify parse stage, raw and patch top-level keys, patch type, baseline and clarification availability, repair status, accepted areas, validation issues, and quality issues without logging credentials or a full provider response.
+Rejection diagnostics are never empty. Provider failures retain their own precise error code instead of being mislabeled as patch rejection. Diagnostics identify provider status/code/message, parse stage, raw and patch top-level keys, patch type, baseline/digest/clarification availability, repair status, accepted areas, validation issues, and quality issues without logging credentials or a full provider response.
 
 The Function continues returning `AIFinalMarketingPlanResponse`, so the existing adapter, renderer, KPI dashboard, and all exports remain compatible. Metadata (`planSource`, `provider`, `modelUsed`, and safe `qualityIssues`) is outside the renderable plan and can be ignored safely.
 

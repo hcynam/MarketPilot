@@ -1253,3 +1253,12 @@ Created `CHECKPOINT_PHASE4_BEFORE_FIX.md` capturing current project status, comp
 - Replaced all-or-nothing patch acceptance with independent scoring across 13 high-value areas; safe partial patches merge accepted areas and preserve baseline content elsewhere.
 - Repair retry now receives the invalid patch, exact issues, and schema; patch quality also requires explicit grounding in clarifying answers when provided.
 - Added distinct user messaging for `ai-enhanced`, `ai-partially-enhanced`, and `internal-fallback` results.
+## Groq Hybrid Generation Stabilization - 2026-07-13
+
+**Status:** Complete
+
+- Separated provider failures from patch rejection and preserved HTTP status, provider error code/message, parse stage, baseline/digest/answer flags, and safe issues through server fallback and frontend diagnostics.
+- Replaced the full baseline in Groq prompts with a compact baseline digest; local sample prompt size dropped from roughly 19k to 8.8k characters.
+- Simplified the provider patch to nine strategic areas; 3 valid areas now produce partial enhancement and 5+ produce full enhancement while baseline content fills every omitted section.
+- Added deterministic input sufficiency logic: the complete MarketPilot sample, online course, and consulting fixtures go directly to plan; incomplete cafe and vague fixtures enter questions mode.
+- Added five reusable QA fixtures and mock coverage for partial merge and provider failure classification without consuming live Groq quota.

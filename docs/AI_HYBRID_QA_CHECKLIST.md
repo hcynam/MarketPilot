@@ -57,5 +57,7 @@ For every scenario, verify:
 - Verify an array response reports `AI returned an array instead of patch object`.
 - Verify an empty object reports `AI patch object is empty after parsing/unwrapping`.
 - Verify every `AI_PATCH_REJECTED` has at least one non-empty validation or quality issue plus parse stage, patch type, top-level keys, baseline/answer flags, and repair status.
-- Verify a patch with at least four useful high-value areas plus valid segments, weekly actions, and tested risks can produce `ai-partially-enhanced`; missing areas must remain baseline content.
+- Verify a patch with at least 3 useful strategic areas produces `ai-partially-enhanced`; 5 or more produces `ai-enhanced`. Missing or invalid areas must remain baseline content.
+- Verify the built-in sample scores as sufficient and skips questions, while the incomplete cafe and vague fixtures enter questions mode.
+- Verify provider HTTP/timeout/empty/JSON failures keep precise `GROQ_*` error codes and never become `AI_PATCH_REJECTED` before a patch object exists.
 - In the MarketPilot sample, select explicit target/channel answers and confirm those exact choices appear in the enhanced target, channel, KPI, action, pricing, or trust recommendations.

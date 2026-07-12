@@ -11,6 +11,7 @@ import { normalizeQuestionsResponse } from './_shared/normalizeAIResponse'
 import {
   baselineToFinalResponse,
   assessEnhancementPatch,
+  buildBaselineDigest,
   evaluateHybridQuality,
   mergeBaselineWithAIPatch,
   prepareEnhancementPatch,
@@ -210,6 +211,7 @@ async function handlePlanMode(payload: MarketingAiPayload) {
   const businessInput = payload.businessInput as Record<string, unknown>
   const clarifyingAnswers = isRecord(payload.clarifyingAnswers) ? payload.clarifyingAnswers : {}
   const baselinePlan = payload.baselinePlan
+  const baselineDigest = buildBaselineDigest(businessInput, baselinePlan, clarifyingAnswers)
   const hasClarifyingAnswers = Object.keys(clarifyingAnswers).length > 0
   let validationIssues: string[] = []
   let qualityIssues: string[] = []
@@ -228,7 +230,7 @@ async function handlePlanMode(payload: MarketingAiPayload) {
     const prompt = buildFinalMarketingPlanPrompt({
       businessInput,
       clarifyingAnswers,
-      baselinePlan,
+      baselineDigest,
       repairIssues: attemptedRepair ? [...validationIssues, ...qualityIssues].slice(0, 20) : undefined,
       invalidPatch: attemptedRepair ? invalidPatch : undefined,
       contextNotes: readOptionalStringArray(payload.contextNotes),
@@ -242,11 +244,12 @@ async function handlePlanMode(payload: MarketingAiPayload) {
     if (!success) {
       modelUsed = readModelUsed(result.payload) || modelUsed
       validationIssues = ensureIssues(readDiagnosticIssues(result.payload), 'Groq patch response could not be parsed or validated.')
-      parseStage = readErrorCode(result.payload) === 'AI_JSON_PARSE_FAILED' ? 'json_parse' : 'provider_response'
+      parseStage = readPayloadParseStage(result.payload)
       return hybridFallbackResponse(baselinePlan, businessInput, {
+        errorCode: normalizeProviderFailureCode(readErrorCode(result.payload)),
         validationIssues, qualityIssues, parseStage, rawTopLevelKeys, patchTopLevelKeys,
         patchType, hasClarifyingAnswers, attemptedRepair, acceptedPatchAreas, patchQualityScore,
-        modelUsed, rawPreview,
+        modelUsed, rawPreview, hasBaselineDigest: true, ...readProviderDetails(result.payload),
       })
     }
 
@@ -263,9 +266,10 @@ async function handlePlanMode(payload: MarketingAiPayload) {
       qualityIssues = []
       if (!attemptedRepair) continue
       return hybridFallbackResponse(baselinePlan, businessInput, {
+        errorCode: validationIssues.some((issue) => issue.includes('empty after parsing')) ? 'AI_PATCH_EMPTY' : 'AI_PATCH_VALIDATION_FAILED',
         validationIssues, qualityIssues, parseStage, rawTopLevelKeys, patchTopLevelKeys,
         patchType, hasClarifyingAnswers, attemptedRepair, acceptedPatchAreas, patchQualityScore,
-        modelUsed, rawPreview,
+        modelUsed, rawPreview, hasBaselineDigest: true,
       })
     }
 
@@ -276,14 +280,15 @@ async function handlePlanMode(payload: MarketingAiPayload) {
     validationIssues = [...new Set([...prepared.validationIssues, ...assessment.validationIssues])].slice(0, 20)
     if (!assessment.usable) {
       qualityIssues = ensureIssues([
-        `Patch has ${acceptedPatchAreas.length} usable high-value areas; at least 4 plus segments, thirtyDayPlan, and risks are required.`,
+        `Patch has ${acceptedPatchAreas.length} usable strategic areas; at least 3 are required.`,
       ], 'Patch did not meet partial enhancement quality.')
       parseStage = 'patch_validation'
       if (!attemptedRepair) continue
       return hybridFallbackResponse(baselinePlan, businessInput, {
+        errorCode: 'AI_PATCH_REJECTED',
         validationIssues, qualityIssues, parseStage, rawTopLevelKeys, patchTopLevelKeys,
         patchType, hasClarifyingAnswers, attemptedRepair, acceptedPatchAreas, patchQualityScore,
-        modelUsed, rawPreview,
+        modelUsed, rawPreview, hasBaselineDigest: true,
       })
     }
 
@@ -293,13 +298,13 @@ async function handlePlanMode(payload: MarketingAiPayload) {
     qualityIssues.push(...finalValidation.errors.map((issue) => `Final contract: ${issue}`))
     qualityIssues = [...new Set(qualityIssues)].slice(0, 20)
     if (qualityIssues.length === 0) {
-      const planSource = acceptedPatchAreas.length === 13 ? 'ai-enhanced' : 'ai-partially-enhanced'
+      const planSource = acceptedPatchAreas.length >= 5 ? 'ai-enhanced' : 'ai-partially-enhanced'
       return jsonResponse(200, {
         ok: true, mode: 'plan', data: finalPlan, planSource,
         provider: 'groq', modelUsed, qualityIssues: [], validationIssues,
         acceptedPatchAreas, patchQualityScore, parseStage: 'merge_quality',
         rawTopLevelKeys, patchTopLevelKeys, patchType, hasBaselinePlan: true,
-        hasClarifyingAnswers, attemptedRepair,
+        hasBaselineDigest: true, hasClarifyingAnswers, attemptedRepair,
       })
     }
 
@@ -315,9 +320,10 @@ async function handlePlanMode(payload: MarketingAiPayload) {
   }
 
   return hybridFallbackResponse(baselinePlan, businessInput, {
+    errorCode: 'AI_PATCH_QUALITY_FAILED',
     validationIssues, qualityIssues, parseStage, rawTopLevelKeys, patchTopLevelKeys,
     patchType, hasClarifyingAnswers, attemptedRepair: true, acceptedPatchAreas,
-    patchQualityScore, modelUsed, rawPreview,
+    patchQualityScore, modelUsed, rawPreview, hasBaselineDigest: true,
   })
 }
 
@@ -401,14 +407,18 @@ async function generateAndValidate(args: {
   try {
     text = extractGroqText(groqResult.responseJson)
   } catch {
+    const diagnosticPayload = {
+      ok: false,
+      mode: args.mode,
+      errorCode: 'GROQ_EMPTY_RESPONSE',
+      errorMessage: 'Groq returned no usable message content.',
+      parseStage: 'provider_response',
+      ...groqResult.diagnostic,
+    }
+    console.error('Groq provider diagnostic', diagnosticPayload)
     return {
       statusCode: 502,
-      payload: {
-        ok: false,
-        mode: args.mode,
-        errorCode: 'GROQ_REQUEST_FAILED',
-        errorMessage: 'AI service returned an empty response.',
-      },
+      payload: diagnosticPayload,
     }
   }
 
@@ -433,9 +443,11 @@ async function generateAndValidate(args: {
       payload: {
         ok: false,
         mode: args.mode,
-        errorCode: 'AI_JSON_PARSE_FAILED',
+        errorCode: 'GROQ_JSON_PARSE_FAILED',
         errorMessage: 'AI response was not valid JSON.',
         validationErrors: parsed.errors,
+        parseStage: 'json_parse',
+        ...groqResult.diagnostic,
       },
     }
   }
@@ -746,6 +758,7 @@ function truncateProviderErrorMessage(message: string | undefined): string | und
 }
 
 interface HybridFallbackDiagnostics {
+  errorCode: string
   validationIssues: string[]
   qualityIssues: string[]
   parseStage: PatchParseStage
@@ -757,6 +770,11 @@ interface HybridFallbackDiagnostics {
   acceptedPatchAreas: string[]
   patchQualityScore: number
   modelUsed: string
+  hasBaselineDigest: boolean
+  providerStatus?: number
+  providerStatusText?: string
+  providerErrorCode?: string
+  providerErrorMessage?: string
   rawPreview?: string
 }
 
@@ -771,7 +789,11 @@ function hybridFallbackResponse(
     validationIssues.push('AI patch was rejected without a usable enhancement object.')
   }
   const diagnostic = {
-    errorCode: 'AI_PATCH_REJECTED', provider: 'groq', modelUsed: details.modelUsed, mode: 'plan',
+    errorCode: details.errorCode, provider: 'groq', modelUsed: details.modelUsed, mode: 'plan',
+    providerStatus: details.providerStatus,
+    providerStatusText: details.providerStatusText,
+    providerErrorCode: details.providerErrorCode,
+    providerErrorMessage: details.providerErrorMessage,
     parseStage: details.parseStage,
     rawTopLevelKeys: details.rawTopLevelKeys.slice(0, 20),
     patchTopLevelKeys: details.patchTopLevelKeys.slice(0, 20),
@@ -781,6 +803,7 @@ function hybridFallbackResponse(
     acceptedPatchAreas: details.acceptedPatchAreas,
     patchQualityScore: details.patchQualityScore,
     hasBaselinePlan: true,
+    hasBaselineDigest: details.hasBaselineDigest,
     hasClarifyingAnswers: details.hasClarifyingAnswers,
     attemptedRepair: details.attemptedRepair,
     rawPreview: details.rawPreview,
@@ -790,7 +813,7 @@ function hybridFallbackResponse(
   return jsonResponse(200, {
     ok: true,
     mode: 'plan',
-    errorCode: 'AI_PATCH_REJECTED',
+    errorCode: details.errorCode,
     data: baselineToFinalResponse(baselinePlan, businessInput),
     planSource: 'internal-fallback',
     provider: 'groq',
@@ -804,9 +827,14 @@ function hybridFallbackResponse(
     acceptedPatchAreas: diagnostic.acceptedPatchAreas,
     patchQualityScore: diagnostic.patchQualityScore,
     hasBaselinePlan: true,
+    hasBaselineDigest: details.hasBaselineDigest,
     hasClarifyingAnswers: diagnostic.hasClarifyingAnswers,
     attemptedRepair: diagnostic.attemptedRepair,
     rawPreview: diagnostic.rawPreview,
+    providerStatus: diagnostic.providerStatus,
+    providerStatusText: diagnostic.providerStatusText,
+    providerErrorCode: diagnostic.providerErrorCode,
+    providerErrorMessage: diagnostic.providerErrorMessage,
   })
 }
 
@@ -832,6 +860,33 @@ function readErrorCode(value: unknown): string | undefined {
 
 function readModelUsed(value: unknown): string | undefined {
   return isRecord(value) && typeof value.modelUsed === 'string' ? value.modelUsed : undefined
+}
+
+function readPayloadParseStage(value: unknown): PatchParseStage {
+  if (isRecord(value) && value.parseStage === 'json_parse') return 'json_parse'
+  const code = readErrorCode(value)
+  return code === 'GROQ_JSON_PARSE_FAILED' || code === 'GROQ_JSON_GENERATION_FAILED'
+    ? 'json_parse'
+    : 'provider_response'
+}
+
+function normalizeProviderFailureCode(code: string | undefined): string {
+  if (!code) return 'GROQ_REQUEST_FAILED'
+  if (code === 'AI_JSON_PARSE_FAILED') return 'GROQ_JSON_PARSE_FAILED'
+  return code
+}
+
+function readProviderDetails(value: unknown): Pick<HybridFallbackDiagnostics,
+  'providerStatus' | 'providerStatusText' | 'providerErrorCode' | 'providerErrorMessage'> {
+  if (!isRecord(value)) return {}
+  return {
+    providerStatus: typeof value.providerStatus === 'number' ? value.providerStatus : undefined,
+    providerStatusText: typeof value.providerStatusText === 'string' ? value.providerStatusText : undefined,
+    providerErrorCode: typeof value.providerErrorCode === 'string' ? value.providerErrorCode : undefined,
+    providerErrorMessage: typeof value.providerErrorMessage === 'string'
+      ? truncateProviderErrorMessage(value.providerErrorMessage)
+      : undefined,
+  }
 }
 
 function ensureIssues(issues: string[], fallback: string): string[] {

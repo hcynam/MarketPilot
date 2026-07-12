@@ -1,4 +1,4 @@
-import type { BaselineMarketingPlan } from './hybridPlan'
+import type { BaselineDigest } from './hybridPlan'
 
 type PromptValue = string | Record<string, unknown> | unknown[] | null | undefined
 
@@ -10,7 +10,7 @@ export interface BuildClarifyingQuestionsPromptArgs {
 export interface BuildFinalMarketingPlanPromptArgs {
   businessInput: PromptValue
   clarifyingAnswers?: PromptValue
-  baselinePlan: BaselineMarketingPlan
+  baselineDigest: BaselineDigest
   repairIssues?: string[]
   invalidPatch?: unknown
   contextNotes?: string[]
@@ -76,8 +76,8 @@ ${serialize(args.businessInput)}
 CLARIFYING ANSWERS
 ${serialize(args.clarifyingAnswers ?? {})}
 
-DETERMINISTIC BASELINE PLAN
-${serialize(args.baselinePlan)}
+COMPACT DETERMINISTIC BASELINE DIGEST
+${serialize(args.baselineDigest)}
 
 COURSE RULES
 ${courseRules}
@@ -92,7 +92,7 @@ REQUIREMENTS
 - All seven 7P elements and all four funnel stages must appear exactly once.
 - Risks must include concrete validation tests.
 - Output only one JSON object. No markdown, code fences, or prose outside JSON.
-- Return EXACTLY one object whose top-level keys are: summaryInsight, segments, primaryTarget, positioningStatement, personas, usp, competitors, marketingMix7P, funnel, digitalChannels, pricingRecommendation, kpis, thirtyDayPlan, risks, qualityRationale.
+- Return EXACTLY one object whose top-level keys are: primaryTarget, positioningStatement, segments, usp, competitors, digitalChannels, kpis, thirtyDayPlan, risks, qualityRationale.
 - Do NOT wrap the object inside patch, data, result, output, response, plan, or any other key.
 - Do NOT return an array.
 - Use the user's clarifying answers explicitly in primaryTarget, digitalChannels, KPIs, thirtyDayPlan, and pricing or trust strategy where relevant.
@@ -101,24 +101,19 @@ ${args.invalidPatch !== undefined ? `\nINVALID PATCH TO REPAIR\n${serialize(args
 
 EXACT PATCH JSON SHAPE
 {
-  "summaryInsight":"بینش اختصاصی و کوتاه",
   "segments":[{"name":"نام بخش","problem":"مسئله مشخص","accessChannel":"مسیر دسترسی","willingnessToPay":"منطق توان پرداخت","priority":"بالا"}],
   "primaryTarget":{"name":"بخش اولویت‌دار","reason":"دلیل انتخاب","whyNow":"دلیل اولویت زمانی"},
   "positioningStatement":"بیانیه جایگاه‌یابی مشخص",
-  "personas":[{"name":"نام پرسونا","role":"نقش","pain":"درد","trigger":"محرک","objection":"اعتراض","message":"پیام"}],
   "usp":"پیشنهاد فروش منحصربه‌فرد و قابل دفاع",
   "competitors":[{"name":"رقیب یا جایگزین","type":"نوع","strength":"قوت","weakness":"ضعف","howToDifferentiate":"روش تمایز"}],
-  "marketingMix7P":[{"element":"Product|Price|Place|Promotion|People|Process|Physical Evidence","recommendation":"توصیه مشخص","reason":"دلیل"}],
-  "funnel":[{"stage":"Awareness|Consideration|Conversion|Retention","action":"اقدام","channel":"کانال","metric":"معیار"}],
   "digitalChannels":[{"channel":"کانال","priority":"بالا","reason":"دلیل","firstExperiment":"آزمایش نخست"}],
-  "pricingRecommendation":{"recommendedModel":"مدل قیمت","reason":"دلیل","introOffer":"پیشنهاد آغازین","risk":"ریسک"},
   "kpis":[{"name":"KPI","target":"هدف","measurement":"روش سنجش","whyItMatters":"اهمیت","channel":"کانال"}],
   "thirtyDayPlan":[{"week":"هفته ۱","actions":["اقدام مشخص اول","اقدام مشخص دوم"],"successMetric":"معیار موفقیت"}],
   "risks":[{"risk":"ریسک واقعی","assumption":"فرض","validationTest":"آزمون اعتبارسنجی"}],
   "qualityRationale":"دلیل کوتاه کیفیت و محدودیت تحلیل"
 }
 
-MINIMUM COUNTS: segments 3; personas 2; competitors 3; marketingMix7P 7; funnel 4; digitalChannels 3; kpis 3; thirtyDayPlan 4; risks 2.
+MINIMUM COUNTS: segments 3; competitors 3; digitalChannels 3; kpis 3; thirtyDayPlan 4; risks 2. Keep omitted baseline sections unchanged.
 
 CONTEXT NOTES
 ${list(args.contextNotes)}
