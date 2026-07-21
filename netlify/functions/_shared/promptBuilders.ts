@@ -1,129 +1,100 @@
-import type { BaselineDigest } from './hybridPlan'
+import type { BaselineDigest } from '../../../src/ai/baselineDigest'
+import type { CompactBusinessBrief } from '../../../src/ai/buildBusinessBrief'
+import type { AIStrategyPatch, ClarifyingQuestionsResponse } from './marketingSchemas'
 
-type PromptValue = string | Record<string, unknown> | unknown[] | null | undefined
+export interface PromptParts {
+  systemPrompt: string
+  userPrompt: string
+  compactBusinessBriefChars: number
+  baselineDigestChars: number
+  clarificationAnswerChars: number
+}
 
 export interface BuildClarifyingQuestionsPromptArgs {
-  businessInput: PromptValue
+  businessBrief: CompactBusinessBrief
   contextNotes?: string[]
 }
 
-export interface BuildFinalMarketingPlanPromptArgs {
-  businessInput: PromptValue
-  clarifyingAnswers?: PromptValue
+export interface BuildStrategyPatchPromptArgs {
+  businessBrief: CompactBusinessBrief
   baselineDigest: BaselineDigest
-  repairIssues?: string[]
-  invalidPatch?: unknown
+  clarifyingAnswers?: Record<string, unknown>
   contextNotes?: string[]
 }
 
-const courseRules = `
-- STP: choose actionable segments, one primary target, and a defensible position.
-- 7P: recommendations must fit product, price, place, promotion, people, process, and physical evidence.
-- Funnel: cover Awareness, Consideration, Conversion, and Retention with actions and metrics.
-- Tie channels, pricing, KPI, and experiments to budget, capacity, stage, customer problem, and evidence.
-- Do not invent market facts. Turn uncertainty into a named assumption and validation test.
-`.trim()
+export type ClarifyingQuestionsPromptContract = ClarifyingQuestionsResponse
+export type StrategyPatchPromptContract = AIStrategyPatch
 
-export function buildClarifyingQuestionsPrompt(args: BuildClarifyingQuestionsPromptArgs): string {
-  return `
-TASK: Decide whether a marketing plan needs a small number of decision-changing clarifications.
+const roleAndSafetyRules = [
+  'You are MarketPilot AI, a Persian-first marketing strategy analyst.',
+  'Use only supplied facts; label inferences as assumptions.',
+  'Do not invent market size, competitor facts, financial results, or guaranteed outcomes.',
+  'Targets without evidence are initial test targets, not promises.',
+  'Return exactly one JSON object only; never use Markdown fences or commentary.',
+].join('\n')
 
-BUSINESS INPUT
-${serialize(args.businessInput)}
+export function buildClarifyingQuestionsPrompt(
+  args: BuildClarifyingQuestionsPromptArgs,
+): PromptParts {
+  const brief = serialize(args.businessBrief)
+  const optionalContext = compactList(args.contextNotes)
+  const systemPrompt = `${roleAndSafetyRules}\n\nMode: clarification. Ask only questions that change segmentation, positioning, pricing, channel, budget, goal, trust, or distribution decisions. Never generate a marketing plan.`
+  const userPrompt = [
+    'Compact business brief:',
+    brief,
+    optionalContext ? `Optional context:\n${optionalContext}` : '',
+    'Return mode "needs_clarification" with 3-6 non-duplicative required questions, or "ready_for_plan" with zero questions.',
+    'Each question needs: id, question, whyItMatters, expectedAnswerType, required=true, priority, decisionImpact.',
+    'Contract: {"mode":"needs_clarification|ready_for_plan","inputQualityScore":0,"diagnosis":"...","missingInformation":[],"requiredQuestions":[],"optionalQuestions":[],"assumptionsIfProceeding":[]}',
+  ].filter(Boolean).join('\n\n')
 
-RULES
-- Ask zero to 3 required questions and at most 1 optional question.
-- Never repeat a form question whose answer is already present.
-- Ask tradeoff or prioritization questions that change STP, channel, pricing, offer, or KPI decisions.
-- Each question needs a short Persian label and Persian priority: بالا, متوسط, or پایین.
-- Prefer useful choice options grounded in the supplied business.
-- All user-visible strings must be professional Persian. KPI, USP, STP, 7P and channel names may remain standard acronyms.
-- Output only one JSON object. No markdown and no extra keys.
-
-EXACT JSON SHAPE
-{
-  "mode":"needs_clarification|ready_for_plan",
-  "inputQualityScore":70,
-  "diagnosis":"تشخیص کوتاه و اختصاصی",
-  "missingInformation":[],
-  "requiredQuestions":[{
-    "id":"decision-1",
-    "label":"اولویت بخش مشتری",
-    "question":"یک پرسش تصمیم‌ساز و اختصاصی",
-    "whyItMatters":"اثر پاسخ بر تصمیم STP، کانال، قیمت یا KPI",
-    "expectedAnswerType":"choice",
-    "options":["گزینه اختصاصی اول","گزینه اختصاصی دوم"],
-    "required":true,
-    "priority":"بالا",
-    "decisionImpact":"segmentation"
-  }],
-  "optionalQuestions":[],
-  "assumptionsIfProceeding":[]
+  return {
+    systemPrompt,
+    userPrompt,
+    compactBusinessBriefChars: brief.length,
+    baselineDigestChars: 0,
+    clarificationAnswerChars: 0,
+  }
 }
 
-CONTEXT NOTES
-${list(args.contextNotes)}
-`.trim()
-}
+export function buildStrategyPatchPrompt(args: BuildStrategyPatchPromptArgs): PromptParts {
+  const brief = serialize(args.businessBrief)
+  const digest = serialize(args.baselineDigest)
+  const answers = serialize(args.clarifyingAnswers ?? {})
+  const optionalContext = compactList(args.contextNotes)
+  const systemPrompt = `${roleAndSafetyRules}\n\nMode: strategy patch. Improve decision quality using STP, customer motivation, value proposition, positioning, funnel/channel fit, pricing direction, KPI logic, 30-day priorities, risks, and validation. Do not recreate the report.`
+  const userPrompt = [
+    'Compact business brief:', brief,
+    'Compact baseline digest (the complete plan stays local):', digest,
+    Object.keys(args.clarifyingAnswers ?? {}).length > 0 ? `Clarification answers:\n${answers}` : '',
+    optionalContext ? `Optional context:\n${optionalContext}` : '',
+    'Return only a compact patch with the exact schema keys. Never wrap it inside patch, strategyPatch, data, or result.',
+    'When the brief is sufficient, produce at least two meaningful strategic areas. Diagnosis is optional and must be business-specific when used.',
+    'Use null for unused object/string areas and empty arrays for unused list areas. Facts and assumptions must remain distinct.',
+    'Keep the patch concise: at most 2 personas, 3 channel priorities, 4 KPIs, 4 action-plan periods with at most 3 actions each, 3 risks, and 3 assumptions. Use one concise sentence per string.',
+    'Exact keys: diagnosis, assumptions, targetMarket, positioning, personas, channelPriorities, pricingDirection, kpis, actionPlan, risks.',
+    'Nested shapes: targetMarket{primarySegment,secondarySegment,selectionReason}; positioning{positioningStatement,valueProposition,usp,proofNeeded[]}; personas[{label,profile,pain,motivation,objection,buyingTrigger}]; channelPriorities[{channel,funnelRole,recommendedAction,kpi,rationale}]; pricingDirection{recommendation,rationale,validationExperiment}; kpis[{name,formula,initialTarget,reviewFrequency}]; actionPlan[{period,focus,actions[],successMetric}]; risks[{risk,mitigation}].',
+    'Never repeat the complete brief, invent unsupported market or financial facts, include fixed report sections, raw form objects, or regenerate the complete 17-section plan.',
+  ].filter(Boolean).join('\n\n')
 
-export function buildFinalMarketingPlanPrompt(args: BuildFinalMarketingPlanPromptArgs): string {
-  return `
-TASK: Produce a strategic enhancement patch for the deterministic baseline. Improve selected strategic decisions; do not rewrite the full 17-section report.
-
-BUSINESS INPUT
-${serialize(args.businessInput)}
-
-CLARIFYING ANSWERS
-${serialize(args.clarifyingAnswers ?? {})}
-
-COMPACT DETERMINISTIC BASELINE DIGEST
-${serialize(args.baselineDigest)}
-
-COURSE RULES
-${courseRules}
-
-REQUIREMENTS
-- Ground every recommendation in the business input, clarifying answers, or a clearly named assumption.
-- Be specific to the product, customer problem, budget, stage, existing channels, competitors, pricing, and goal.
-- Avoid templates, filler, generic marketing advice, and repeated sentences.
-- Do not repeat the app name as content.
-- All user-visible text must be concise professional Persian; KPI, USP, STP, 7P and standard stage/element identifiers may remain English.
-- Priority values must be exactly بالا, متوسط, or پایین; never high, medium, or low.
-- All seven 7P elements and all four funnel stages must appear exactly once.
-- Risks must include concrete validation tests.
-- Output only one JSON object. No markdown, code fences, or prose outside JSON.
-- Return EXACTLY one object whose top-level keys are: primaryTarget, positioningStatement, segments, usp, competitors, digitalChannels, kpis, thirtyDayPlan, risks, qualityRationale.
-- Do NOT wrap the object inside patch, data, result, output, response, plan, or any other key.
-- Do NOT return an array.
-- Use the user's clarifying answers explicitly in primaryTarget, digitalChannels, KPIs, thirtyDayPlan, and pricing or trust strategy where relevant.
-${args.repairIssues?.length ? `- Repair all of these prior quality issues:\n${list(args.repairIssues)}` : ''}
-${args.invalidPatch !== undefined ? `\nINVALID PATCH TO REPAIR\n${serialize(args.invalidPatch)}\nKeep the same patch schema. Fix only invalid, missing, or generic areas and return the unwrapped JSON object.` : ''}
-
-EXACT PATCH JSON SHAPE
-{
-  "segments":[{"name":"نام بخش","problem":"مسئله مشخص","accessChannel":"مسیر دسترسی","willingnessToPay":"منطق توان پرداخت","priority":"بالا"}],
-  "primaryTarget":{"name":"بخش اولویت‌دار","reason":"دلیل انتخاب","whyNow":"دلیل اولویت زمانی"},
-  "positioningStatement":"بیانیه جایگاه‌یابی مشخص",
-  "usp":"پیشنهاد فروش منحصربه‌فرد و قابل دفاع",
-  "competitors":[{"name":"رقیب یا جایگزین","type":"نوع","strength":"قوت","weakness":"ضعف","howToDifferentiate":"روش تمایز"}],
-  "digitalChannels":[{"channel":"کانال","priority":"بالا","reason":"دلیل","firstExperiment":"آزمایش نخست"}],
-  "kpis":[{"name":"KPI","target":"هدف","measurement":"روش سنجش","whyItMatters":"اهمیت","channel":"کانال"}],
-  "thirtyDayPlan":[{"week":"هفته ۱","actions":["اقدام مشخص اول","اقدام مشخص دوم"],"successMetric":"معیار موفقیت"}],
-  "risks":[{"risk":"ریسک واقعی","assumption":"فرض","validationTest":"آزمون اعتبارسنجی"}],
-  "qualityRationale":"دلیل کوتاه کیفیت و محدودیت تحلیل"
-}
-
-MINIMUM COUNTS: segments 3; competitors 3; digitalChannels 3; kpis 3; thirtyDayPlan 4; risks 2. Keep omitted baseline sections unchanged.
-
-CONTEXT NOTES
-${list(args.contextNotes)}
-`.trim()
+  return {
+    systemPrompt,
+    userPrompt,
+    compactBusinessBriefChars: brief.length,
+    baselineDigestChars: digest.length,
+    clarificationAnswerChars: answers === '{}' ? 0 : answers.length,
+  }
 }
 
 function serialize(value: unknown): string {
-  try { return JSON.stringify(value ?? {}, null, 2) } catch { return '{}' }
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return '{}'
+  }
 }
 
-function list(values: string[] | undefined): string {
-  return values?.length ? values.map((value) => `- ${value}`).join('\n') : '- none'
+function compactList(values: string[] | undefined): string {
+  if (!values?.length) return ''
+  return values.map((item) => item.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 4).join('\n')
 }

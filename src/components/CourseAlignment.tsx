@@ -16,7 +16,7 @@ const concepts = [
 
 function CourseAlignment() {
   return (
-    <section className="alignment">
+    <section className="alignment" data-mp-reveal>
       <div className="container">
         <h2 className="alignment__title">چارچوب تحلیلی برنامه</h2>
         <p className="alignment__desc">
@@ -26,13 +26,17 @@ function CourseAlignment() {
           {concepts.map((c) => (
             <div key={c.label} className="alignment__card">
               <span className="alignment__concept">{c.label}</span>
-              <span className="alignment__section">{c.section}</span>
+              <span className="alignment__section">{formatSectionLabel(c.section)}</span>
             </div>
           ))}
         </div>
       </div>
     </section>
   )
+}
+
+function formatSectionLabel(label: string): string {
+  return label.replace(/^بخش(?:‌های)?\s+[^:]+:\s*/, '')
 }
 
 export default CourseAlignment

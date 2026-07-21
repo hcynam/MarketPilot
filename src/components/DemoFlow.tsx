@@ -11,7 +11,7 @@ const steps = [
 
 function DemoFlow() {
   return (
-    <section className="demoflow">
+    <section className="demoflow" data-mp-reveal>
       <div className="container">
         <h2 className="demoflow__title">راهنمای شروع سریع</h2>
         <p className="demoflow__desc">برای ارزیابی سریع، می‌توانید از نمونه آزمایشی MarketPilot AI استفاده کنید؛ مسیر اصلی، ورود داده‌های واقعی کسب‌وکار شماست.</p>

@@ -12,9 +12,9 @@ interface Props {
 }
 
 const priorityLabels: Record<ClarifyingQuestion['priority'], string> = {
-  'بالا': 'اولویت بالا',
-  'متوسط': 'اولویت متوسط',
-  'پایین': 'اولویت پایین',
+  high: 'اولویت بالا',
+  medium: 'اولویت متوسط',
+  low: 'اولویت پایین',
 }
 
 const impactLabels: Record<ClarifyingQuestion['decisionImpact'], string> = {
@@ -28,6 +28,9 @@ const impactLabels: Record<ClarifyingQuestion['decisionImpact'], string> = {
   competition: 'رقابت',
   customer: 'مشتری',
   offer: 'پیشنهاد',
+  trust: 'اعتماد',
+  distribution: 'توزیع',
+  goal: 'هدف',
   other: 'سایر',
 }
 
@@ -178,12 +181,13 @@ function QuestionField({
   onChange: (value: string | string[]) => void
 }) {
   const invalid = question.required && showValidation && !hasAnswer(value)
+  const labelId = `clarify-question-${question.id}`
+  const errorId = `clarify-question-${question.id}-error`
 
   return (
     <div className={`clarify__question ${invalid ? 'clarify__question--invalid' : ''}`}>
       <div className="clarify__question-head">
-        <h3>
-          {question.label && <span className="clarify__question-label">{question.label}: </span>}
+        <h3 id={labelId}>
           {question.question}
           {question.required && <span className="clarify__required"> *</span>}
         </h3>
@@ -193,8 +197,15 @@ function QuestionField({
         </div>
       </div>
       <p className="clarify__why">{question.whyItMatters}</p>
-      <QuestionInput question={question} value={value} onChange={onChange} />
-      {invalid && <div className="clarify__field-error">پاسخ به این سؤال الزامی است.</div>}
+      <QuestionInput
+        question={question}
+        value={value}
+        labelledBy={labelId}
+        invalid={invalid}
+        errorId={errorId}
+        onChange={onChange}
+      />
+      {invalid && <div id={errorId} className="clarify__field-error">پاسخ به این سؤال الزامی است.</div>}
     </div>
   )
 }
@@ -202,16 +213,22 @@ function QuestionField({
 function QuestionInput({
   question,
   value,
+  labelledBy,
+  invalid,
+  errorId,
   onChange,
 }: {
   question: ClarifyingQuestion
   value: string | string[] | undefined
+  labelledBy: string
+  invalid: boolean
+  errorId: string
   onChange: (value: string | string[]) => void
 }) {
   if (question.expectedAnswerType === 'multiChoice') {
     const selected = Array.isArray(value) ? value : []
     return (
-      <div className="clarify__options">
+      <div className="clarify__options" role="group" aria-labelledby={labelledBy} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined}>
         {(question.options ?? []).map((option) => (
           <label key={option} className="clarify__option">
             <input
@@ -235,6 +252,9 @@ function QuestionInput({
     return (
       <select
         className="clarify__select"
+        aria-labelledby={labelledBy}
+        aria-invalid={invalid}
+        aria-describedby={invalid ? errorId : undefined}
         value={typeof value === 'string' ? value : ''}
         onChange={(event) => onChange(event.target.value)}
       >
@@ -251,6 +271,9 @@ function QuestionInput({
       <input
         className="clarify__input"
         type="number"
+        aria-labelledby={labelledBy}
+        aria-invalid={invalid}
+        aria-describedby={invalid ? errorId : undefined}
         value={typeof value === 'string' ? value : ''}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -261,6 +284,9 @@ function QuestionInput({
     <textarea
       className="clarify__textarea"
       rows={3}
+      aria-labelledby={labelledBy}
+      aria-invalid={invalid}
+      aria-describedby={invalid ? errorId : undefined}
       value={typeof value === 'string' ? value : ''}
       onChange={(event) => onChange(event.target.value)}
     />

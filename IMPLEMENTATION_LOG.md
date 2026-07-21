@@ -937,6 +937,41 @@ Created `CHECKPOINT_PHASE4_BEFORE_FIX.md` capturing current project status, comp
 ### Final Project Status
 **READY FOR UNIVERSITY SUBMISSION**
 
+## Production-Grade AI Request Architecture — 2026-07-13
+
+**Status:** Complete
+
+### Root Causes Corrected
+- Removed duplicated brief fields and the complete `rawInput` append.
+- Replaced full 17-section AI generation with a compact strategy patch over a local complete baseline.
+- Replaced the late 30,000-character guard with mode-specific character/token preflight and safe diagnostics.
+- Replaced whole-response rejection with field/item-level patch validation and merge diagnostics.
+- Added explicit built-in-sample origin state and deterministic completeness preflight.
+- Added provider-independent Groq/Gemini handling and typed 413, 429, auth, timeout, network, 5xx, empty, malformed, partial, and rejected-patch states.
+
+### Measured Sample Request Reduction
+- Clarification prompt: 10,657 -> 2,890 characters; estimated input tokens: 3,987 -> 1,226.
+- Full-plan prompt -> strategy patch prompt: 12,743 -> 5,405 characters; estimated input tokens: 4,670 -> 2,352.
+- Duplicated old brief: 4,660 characters -> canonical compact brief: 1,911 characters.
+- Complete local baseline: 13,498 characters; transmitted baseline digest only: 1,999 characters.
+- Output is now capped at 600 tokens for clarification and 1,800 for strategy patches.
+
+### Reliability and Product Behavior
+- Complete businesses and the built-in sample skip the clarification provider call.
+- Editing a loaded sample clears stale `skipClarification` state.
+- The internal plan remains the report/export/KPI completeness layer.
+- Partial valid patches are merged; invalid areas preserve baseline content.
+- UI labels internal-only, enhanced, partially enhanced, and clarification-required results distinctly.
+- 413/429 are never retried; transient timeout/network/5xx receives at most one controlled retry.
+
+### Verification
+- `cmd /c "npm run typecheck"` passed.
+- Targeted Netlify Function TypeScript check passed.
+- `cmd /c "npm test"` passed: 18/18 tests.
+- `cmd /c "npm run build"` passed after code and documentation closeout (79 modules transformed; production bundle built successfully).
+- No real provider calls were made; all provider behavior was tested with mocks.
+- No secret was printed, added, or committed.
+
 ## Controlled Final Feature-Fix Pass — 2026-07-11
 
 **Status:** Complete
@@ -1200,65 +1235,3 @@ Created `CHECKPOINT_PHASE4_BEFORE_FIX.md` capturing current project status, comp
 ### Build Status
 - Shared TypeScript sanity check passed.
 - `cmd /c "npm run build"` passed.
-## OpenRouter Provider Migration - 2026-07-12
-
-**Status:** Complete
-
-- Replaced the Gemini REST runtime in `netlify/functions/marketing-ai.ts` with OpenRouter Chat Completions using dependency-free `fetch`.
-- Preserved the existing function route, questions/plan modes, prompt builders, validators, UI flow, report renderer, exports, and deterministic fallback.
-- Added safe OpenRouter diagnostics and status-specific auth/rate-limit/request error codes without returning credentials or authorization headers.
-- Updated server-only environment setup and marked the previous Gemini production configuration as deprecated.
-- Free OpenRouter models may be rate-limited and are intended for demo/testing.
-## Groq Provider Migration - 2026-07-12
-
-**Status:** Complete
-
-- Replaced OpenRouter/Gemini runtime paths with Groq Chat Completions through dependency-free `fetch`.
-- Set the production default model to `qwen/qwen3-32b` and provider timeout to 18 seconds.
-- Reduced question limits to three required and one optional, and compressed course knowledge and final-plan instructions for concise 17-section JSON within the 2200-token output budget.
-- Preserved the Function route, validators, UI flow, report renderer, exports, and deterministic fallback.
-- Updated safe diagnostics and Netlify environment documentation; only `GROQ_API_KEY` is secret.
-## Groq JSON Generation Fix - 2026-07-12
-
-**Status:** Complete
-
-- Hid Qwen reasoning and disabled reasoning effort when supported, with a compatibility retry that omits only `reasoning_effort` when Groq rejects it.
-- Added a single strict raw-JSON retry for Groq `json_validate_failed` responses while retaining JSON Object Mode on the first attempt.
-- Reduced question output to two required plus one optional, shortened plan fields, and lowered generation settings to 700/1800 completion tokens.
-- Preserved local JSON repair, validators, the deterministic fallback engine, and safe attempt-aware provider diagnostics.
-## Groq Response Normalization - 2026-07-12
-
-**Status:** Complete
-
-- Added schema-aware normalization between JSON parsing and strict validation for both questions and final-plan responses.
-- Repairable question aliases, missing defaults, string questions, IDs, limits, and required metadata are normalized without weakening the validator.
-- Final plans receive exact required section titles, missing-section repair, KPI/action/quality defaults, concise Persian text normalization, and adapter-safe top-level fields.
-- Validation failures now expose only short issue lists and top-level keys through `AI validation diagnostic`; raw AI responses and secrets are never logged.
-## Hybrid Groq Enhancement Refactor - 2026-07-12
-
-**Status:** Complete
-
-- Replaced full-report AI generation with deterministic baseline → Groq strategic patch → strict validation → deterministic merge → post-merge quality gate.
-- Added patch coverage rules for 3 segments, primary target, 2 personas, USP, 3 competitors, complete 7P/funnel, 3 channels/KPIs, four action weeks, and risks with validation tests.
-- Removed analytical filler generation from normalization; normalization now repairs only safe shape, type, priority, and numeric variations.
-- Added one patch-only quality repair retry and baseline preservation with `planSource: internal-fallback` when the patch remains weak.
-- Improved clarification prompts with decision tradeoffs, Persian labels/priorities, and a 3-required/1-optional limit.
-- Added `docs/AI_HYBRID_QA_CHECKLIST.md` covering SaaS, local cafe, online course, vague input, and small-budget consulting scenarios.
-## Groq Patch Rejection and Partial Enhancement Fix - 2026-07-12
-
-**Status:** Complete
-
-- Fixed the empty `AI_PATCH_REJECTED` metadata path by preserving non-empty validation/quality issues and full safe diagnostics in successful baseline responses and the frontend client.
-- Added recursive wrapper unwrapping, array/null/string/empty-object diagnostics, sanitized 400-character previews, and best-effort extraction from full-plan-shaped responses.
-- Replaced all-or-nothing patch acceptance with independent scoring across 13 high-value areas; safe partial patches merge accepted areas and preserve baseline content elsewhere.
-- Repair retry now receives the invalid patch, exact issues, and schema; patch quality also requires explicit grounding in clarifying answers when provided.
-- Added distinct user messaging for `ai-enhanced`, `ai-partially-enhanced`, and `internal-fallback` results.
-## Groq Hybrid Generation Stabilization - 2026-07-13
-
-**Status:** Complete
-
-- Separated provider failures from patch rejection and preserved HTTP status, provider error code/message, parse stage, baseline/digest/answer flags, and safe issues through server fallback and frontend diagnostics.
-- Replaced the full baseline in Groq prompts with a compact baseline digest; local sample prompt size dropped from roughly 19k to 8.8k characters.
-- Simplified the provider patch to nine strategic areas; 3 valid areas now produce partial enhancement and 5+ produce full enhancement while baseline content fills every omitted section.
-- Added deterministic input sufficiency logic: the complete MarketPilot sample, online course, and consulting fixtures go directly to plan; incomplete cafe and vague fixtures enter questions mode.
-- Added five reusable QA fixtures and mock coverage for partial merge and provider failure classification without consuming live Groq quota.

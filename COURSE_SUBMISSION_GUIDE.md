@@ -52,9 +52,9 @@ Entrepreneurs, students, and small business owners often need a structured marke
 
 3. **Generate the plan:**
    - Click **"Generate Marketing Plan"**
-   - If Gemini is configured, the app first reviews input quality and may ask clarifying questions
-   - Required clarifying questions must be answered before final AI generation
-   - If AI is unavailable, the fallback engine renders a safe baseline plan
+   - The built-in sample skips clarification explicitly
+   - Custom incomplete inputs receive 3-6 decision-relevant questions
+   - The complete baseline is always produced internally; valid AI strategy patches are optional enhancements
    - Scroll through the 17-section output with collapsible sections
 
 4. **Interact with KPIs:**
@@ -80,7 +80,7 @@ Entrepreneurs, students, and small business owners often need a structured marke
 
 2. **Problem & Motivation (30s):** "Entrepreneurs and students need quick, structured marketing plans. Instead of staring at a blank page, they can fill in their business data and get an academically grounded starting point in seconds."
 
-3. **Live Demo (2 min):** Load the sample case, click Generate, explain any clarifying questions as input-quality control, walk through 3-4 key sections (USP, 7P Mix, KPI Dashboard, Quality Score), and show export.
+3. **Live Demo (2 min):** Load the sample case, click Generate, confirm that it asks zero clarification questions, explain the source-status label, walk through 3-4 key sections (USP, 7P Mix, KPI Dashboard, Quality Score), and show export.
 
 4. **Technical Highlights (1 min):** "Built with React, TypeScript, and Vite. Gemini runs server-side through a Netlify Function, the frontend never receives the API key, and the deterministic engine remains as a reliable fallback."
 

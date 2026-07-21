@@ -1,4 +1,5 @@
 import './WorkflowPreview.css'
+import DecisionThread from './DecisionThread'
 
 const steps = [
   { num: '01', label: 'دریافت اطلاعات', desc: 'مشخصات کسب‌وکار یا محصول را وارد کنید' },
@@ -9,21 +10,14 @@ const steps = [
 
 function WorkflowPreview() {
   return (
-    <section className="workflow">
+    <section className="workflow" data-mp-reveal>
       <div className="container">
         <h2 className="workflow__title">روند کار</h2>
-        <div className="workflow__steps">
-          {steps.map((step, i) => (
-            <div key={step.num} className="workflow__step">
-              <div className="workflow__step-number">{step.num}</div>
-              <div className="workflow__step-content">
-                <h3 className="workflow__step-label">{step.label}</h3>
-                <p className="workflow__step-desc">{step.desc}</p>
-              </div>
-              {i < steps.length - 1 && <div className="workflow__arrow" aria-hidden="true" />}
-            </div>
-          ))}
-        </div>
+        <DecisionThread
+          className="workflow__steps"
+          steps={steps.map(step => ({ marker: step.num, label: step.label, description: step.desc }))}
+          ariaLabel="روند کار MarketPilot AI"
+        />
       </div>
     </section>
   )

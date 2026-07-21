@@ -1,106 +1,54 @@
-# MarketPilot AI Architecture
+# MarketPilot AI — Request Architecture
 
-## Current Hybrid Generation Architecture
+## Responsibility split
 
-Final plan generation is baseline-first:
+The deterministic engine is the completeness layer. It always creates the full 17-section `MarketingPlan` used by the report UI, KPI dashboard, Markdown, Word, PDF, and print paths.
 
-1. The frontend runs the existing deterministic engine against the exact input snapshot.
-2. It sends `businessInput`, optional `clarifyingAnswers`, and the complete `baselinePlan` to the unchanged `/.netlify/functions/marketing-ai` route. The Function retains that baseline for merge but derives a compact `baselineDigest` for the provider prompt.
-3. Groq (`qwen/qwen3-32b`) receives the digest and generates only a compact patch for target, positioning, segments, USP, competitors, channels, KPIs, four-week actions, tested risks, and quality rationale. Personas, 7P, funnel, pricing, and other omitted areas remain deterministic baseline content.
-4. The Function performs shape-only normalization, strict patch validation, and deterministic merge into the baseline.
-5. The merged 17-section response is checked against the existing final response validator and a separate quality gate for filler, repetition, grounding, completeness, Persian priorities, and operational depth.
-6. A failed validation or quality gate permits one patch-only repair retry. A second failure returns the deterministic baseline with `planSource: internal-fallback`.
+The provider is an optional enhancement layer. It receives one compact business brief plus a compact baseline digest and returns a small strategy patch. The complete form object and complete baseline plan never cross the Netlify Function boundary.
 
-Patch parsing accepts an unwrapped object or recursively unwraps common provider wrappers (`patch`, `aiPatch`, `enhancementPatch`, `marketingPatch`, `data`, `result`, and `output`). Full-plan-shaped responses are converted into candidate patch areas where possible. Nine strategic areas are scored independently: 3 usable areas produce `ai-partially-enhanced`, while 5 or more produce `ai-enhanced`. Baseline content remains authoritative for every missing or invalid area.
+## Request flow
 
-Rejection diagnostics are never empty. Provider failures retain their own precise error code instead of being mislabeled as patch rejection. Diagnostics identify provider status/code/message, parse stage, raw and patch top-level keys, patch type, baseline/digest/clarification availability, repair status, accepted areas, validation issues, and quality issues without logging credentials or a full provider response.
+1. `buildBusinessBrief()` normalizes form data into one canonical compact object, removes empty values, deduplicates arrays, and deterministically truncates abnormal free text.
+2. `assessBusinessCompleteness()` decides locally whether clarification is meaningful. Complete inputs skip the clarification provider call.
+3. The built-in sample carries explicit `source: built_in_sample` and `skipClarification: true` state. Any meaningful edit clears that state.
+4. The deterministic engine creates the complete baseline locally.
+5. `buildBaselineDigest()` extracts only the facts needed for strategic improvement.
+6. Every provider request passes through a mode-specific preflight with character counts, conservative token estimation, output budget, compression state, and a local block decision.
+7. Clarification mode returns only 3-6 decision-relevant questions. Strategy mode returns only optional patch areas.
+8. Patch validation is area-level and item-level. Valid positioning can be retained even if pricing is invalid; one invalid persona does not discard another valid persona.
+9. The composer merges accepted areas into the complete baseline and runs a deterministic consistency pass. Missing or rejected patch areas retain their internal values.
+10. The UI labels the result as internal-only, AI-enhanced, partially AI-enhanced, or clarification-required.
 
-The Function continues returning `AIFinalMarketingPlanResponse`, so the existing adapter, renderer, KPI dashboard, and all exports remain compatible. Metadata (`planSource`, `provider`, `modelUsed`, and safe `qualityIssues`) is outside the renderable plan and can be ignored safely.
+## Budgets
 
-> Historical Gemini and OpenRouter production notes below are deprecated. The current runtime provider is Groq.
+| Mode | Prompt characters | Output tokens | Total estimated tokens |
+|---|---:|---:|---:|
+| Clarification | 7,000 | 600 | 3,200 |
+| Strategy patch | 12,000 | 2,300 | 7,000 |
 
-## Phase AI-1 Scope
+Token estimation weights Persian/non-ASCII text more conservatively and adds a 15% margin. Optional notes are removed and the budget is recalculated before a request is blocked. A blocked payload never reaches the provider.
 
-This phase adds the AI foundation only. Gemini is not wired yet, no Netlify API function is created, no API key is added, and the current rule-based app flow remains unchanged.
+## Providers and security
 
-## Planned AI Flow
+The Netlify Function supports Groq Chat Completions and Gemini `generateContent` without an SDK. `AI_PROVIDER` selects the provider; when it is absent, an available `GROQ_API_KEY` selects Groq, otherwise Gemini is used. API keys remain server-side and are never logged or returned.
 
-1. User enters the business intake form.
-2. The app packages the form into a structured business brief.
-3. The Netlify Function sends a compact brief to Groq for input-quality review.
-4. Groq returns either clarifying questions or a ready-for-plan signal.
-5. If clarification is needed, the user answers the questions.
-6. A second Groq call generates the final concise, structured marketing plan.
-7. The Netlify Function validates the JSON response.
-8. The app renders the final plan through the existing 17-section report UI.
-9. Markdown, Word, and PDF exports continue to use the rendered plan.
-10. If AI or API validation fails, the current rule-based engine remains the fallback.
+The recommended Groq default is `openai/gpt-oss-120b`. GPT-OSS 20B/120B strategy requests use strict JSON Schema Structured Outputs and `reasoning_effort: low`; all schema properties are required, optional values are nullable, and every object rejects additional properties. Other Groq models use JSON Object Mode plus wrapper/alias normalization and area-level validation. Qwen-compatible requests hide reasoning, and parsing always consumes only final assistant `content`.
 
-## Two AI Calls
+If Groq specifically rejects the primary strict strategy request with `json_validate_failed`, the Function makes one JSON Object Mode fallback request. That response still passes through local JSON parsing, normalization, area/item validation, and safe merge. This fallback and the existing transient retry policy share one explicit two-call ceiling, so they cannot combine into three or more provider calls.
 
-- Call 1: clarifying questions only. It must not generate the final plan.
-- Call 2: final marketing plan only after the input is sufficient or assumptions are accepted.
+Safe response diagnostics record provider status, finish reason, content/reasoning character counts, parse success, raw/normalized top-level key names, one recognized wrapper, unknown keys, and accepted/rejected areas. Complete content, prompts, business input, credentials, and hidden reasoning are never logged.
 
-## Server-Side Groq Integration
+Safe diagnostics contain mode, provider, model, prompt/digest/answer character counts, estimated tokens, output budget, compression flags, and the local block decision. They never contain authorization headers, raw provider bodies, or environment values.
 
-Groq is called only from the Netlify Function at `/.netlify/functions/marketing-ai`. `GROQ_API_KEY` stays server-side as a Netlify Secret; the frontend never receives provider credentials. The function uses Groq's OpenAI-compatible Chat Completions endpoint, parses `choices[0].message.content`, strips optional JSON fences through the shared parser, and validates both supported response modes before returning data.
+## Failure behavior
 
-The current configuration is `GROQ_API_KEY`, `GROQ_MODEL`, `AI_PROVIDER`, and `AI_PROVIDER_TIMEOUT_MS`. Only the API key is secret. The production model defaults to `qwen/qwen3-32b`, with an 18-second timeout. Gemini and OpenRouter runtime paths are deprecated and removed.
+- 413 and 429 are not retried.
+- 401/403 are classified as authentication failures without exposing secret details.
+- Timeout, network failure, and provider 5xx may receive one controlled retry with a short backoff.
+- A strict Groq `json_validate_failed` may receive one JSON Object Mode fallback instead of a retry.
+- `AI_PROVIDER_TIMEOUT_MS` is preferred, with `AI_TIMEOUT_MS` and `GEMINI_TIMEOUT_MS` retained for backward compatibility.
+- Empty response, malformed JSON, schema mismatch, partial patch, and total patch rejection are distinct states.
+- One local JSON wrapper/extraction recovery is allowed; no large AI repair request is sent.
+- Every failure preserves the complete internal plan.
 
-## Phase AI-2 Function Foundation
-
-Phase AI-2 originally introduced the server-side provider boundary. Groq now powers that boundary without changing the function route, validators, frontend flow, report renderer, exports, or deterministic fallback.
-
-The frontend infrastructure now includes:
-
-- `src/ai/marketingAIClient.ts` for POST calls to `/.netlify/functions/marketing-ai`
-- `src/ai/buildBusinessBrief.ts` for packaging the current business form into an AI-ready brief
-- `src/ai/fallbackPlan.ts` for preserving the deterministic engine fallback
-
-Phase AI-3 connects the Generate button to the user-triggered AI flow while preserving the deterministic fallback path.
-
-Request size limits, prompt size limits, and provider timeout protection ensure oversized inputs and slow provider responses fail safely.
-
-## Phase AI-3 UI Integration
-
-Phase AI-3 connects the existing Generate Marketing Plan action to `buildBusinessBrief()`, `requestClarifyingQuestions()`, and `requestFinalMarketingPlan()`. If the provider asks for more information, the app shows a Persian RTL clarifying-questions panel and requires mandatory answers before the final AI plan call.
-
-Validated final AI responses are converted by `src/ai/aiPlanAdapter.ts` into the existing `MarketingPlan` structure, so the original 17-section renderer and Markdown, Word, PDF, and print exports remain the output path. If AI is unavailable, times out, returns invalid JSON, or fails validation, `generateFallbackMarketingPlan()` renders the deterministic rule-based plan with a safe Persian fallback message.
-
-## Validation
-
-AI output must be valid JSON and pass local validators before the UI uses it:
-
-- `validateClarifyingQuestionsResponse`
-- `validateFinalMarketingPlanResponse`
-- `safeParseJson`
-
-Invalid AI output should return a safe error or fall back to rule-based generation.
-
-## AI-1 Hardening
-
-The AI-1 hardening pass tightened the contracts before Gemini wiring:
-
-- Clarifying questions now include priority and decision-impact metadata.
-- Final plan output now uses stronger structured expectations for channel recommendations, 7P items, funnel stages, segments, personas, KPI items, weekly action plans, and quality scoring.
-- Validators reject malformed, obviously weak, incomplete, duplicated, or hard-to-render output while avoiding unnecessary brittleness around normal wording.
-- Prompt builders instruct the provider to ask diagnostic questions when inputs are vague, contradictory, suspicious, or low-value.
-- These historical foundation notes predate the current Groq runtime integration.
-
-## API Usage Control
-
-AI calls happen only after explicit user actions, such as clicking an AI review or generate button. The app does not call Groq automatically on every keystroke, page load, or localStorage restore.
-
-## Knowledge Strategy
-
-The course PDF is distilled into `marketingKnowledgeBase.ts` instead of sending the full course every time. This keeps prompts smaller, lowers cost, reduces latency, and turns course material into operational rules that the model can apply consistently.
-
-## Current Fallback
-
-The existing deterministic marketing engine remains important. It provides a build-safe baseline, works without network access, and should be used when AI is unavailable, invalid, rate-limited, or disabled.
-
-## Phase AI-4 Release Readiness
-
-The release state preserves the user-triggered two-step AI flow, deterministic fallback, server-side Groq boundary, compact prompts, JSON validation, request/prompt size guards, timeout protection, and existing Markdown, Word, PDF, and print exports.
-
-Final manual deployment work remains environment-specific: configure Netlify variables, redeploy, test the UI against the deployed Function, and verify AI and fallback scenarios using `docs/AI_FINAL_QA_SCENARIOS.md` and `docs/DEPLOYMENT_READINESS_CHECKLIST.md`.
+See `AI_REQUEST_ARCHITECTURE_AUDIT.md` for the pre-change evidence and `tests/` for request, scenario, provider-failure, merge, KPI, and export coverage.

@@ -1,0 +1,14 @@
+.plan-gate { position: fixed; inset: 0; z-index: var(--mp-z-sheet); display: grid; place-items: center; padding: var(--mp-space-4); background: var(--mp-scrim); }
+.plan-gate__dialog { position: relative; width: min(100%, 540px); max-height: calc(100dvh - 32px); overflow-y: auto; padding: var(--mp-space-8); border-radius: var(--mp-radius-sheet); background: var(--mp-surface); color: var(--mp-text); box-shadow: var(--mp-shadow-sheet); }
+.plan-gate__close { position: absolute; inset-block-start: var(--mp-space-3); inset-inline-end: var(--mp-space-3); width: 44px; height: 44px; border: 0; border-radius: var(--mp-radius-control); background: transparent; color: var(--mp-muted); cursor: pointer; font-size: 1.75rem; }
+.plan-gate__mark { width: 48px; height: 48px; display: grid; place-items: center; margin-block-end: var(--mp-space-4); border-radius: var(--mp-radius-control); background: var(--mp-primary-soft); color: var(--mp-primary); font-family: var(--font-data); font-weight: 800; }
+.plan-gate h2 { color: var(--mp-ink); font-size: var(--mp-text-2xl); line-height: 1.45; text-wrap: balance; }
+.plan-gate p { margin-block-start: var(--mp-space-3); color: var(--mp-muted); line-height: 1.8; text-wrap: pretty; }
+.plan-gate ul { margin: var(--mp-space-4) 0; padding-inline-start: var(--mp-space-6); color: var(--mp-text); }
+.plan-gate li { margin-block: var(--mp-space-2); }
+.plan-gate__actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--mp-space-3); }
+.plan-gate__actions button { min-height: 48px; padding: 10px 16px; border: 1px solid var(--mp-line-strong); border-radius: var(--mp-radius-control); background: var(--mp-surface); color: var(--mp-primary); cursor: pointer; font-weight: 800; }
+.plan-gate__actions .plan-gate__primary { border-color: var(--mp-primary); background: var(--mp-primary); color: var(--mp-on-primary); }
+.plan-gate__actions .plan-gate__later { grid-column: 1 / -1; border-color: transparent; color: var(--mp-muted); font-weight: 600; }
+.plan-toast { position: fixed; inset-inline-start: 50%; inset-block-end: calc(24px + env(safe-area-inset-bottom, 0px)); z-index: var(--mp-z-toast); width: min(calc(100% - 32px), 520px); transform: translateX(-50%); padding: var(--mp-space-3) var(--mp-space-4); border-radius: var(--mp-radius-control); background: var(--mp-ink); color: var(--mp-on-primary); text-align: center; box-shadow: var(--mp-shadow-sheet); }
+@media (max-width: 560px) { .plan-gate__dialog { padding: var(--mp-space-6) var(--mp-space-4); } .plan-gate__actions { grid-template-columns: 1fr; } .plan-gate__actions .plan-gate__later { grid-column: auto; } }

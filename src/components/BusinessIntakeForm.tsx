@@ -135,9 +135,11 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
   }
 
   const completedCount = SECTIONS.filter(s => isComplete(s.key)).length
+  const firstIncompleteIndex = SECTIONS.findIndex(s => !isComplete(s.key))
+  const currentSectionIndex = firstIncompleteIndex === -1 ? SECTIONS.length - 1 : firstIncompleteIndex
 
   return (
-    <section className="intake">
+    <section id="business-form" className="intake" data-mp-reveal>
       <div className="container">
         <div className="intake__header">
           <h2 className="intake__title">فرم دریافت اطلاعات کسب‌وکار</h2>
@@ -146,15 +148,48 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
           </span>
         </div>
 
-        <div className="intake__bar">
-          {SECTIONS.map(s => (
-            <div
-              key={s.key}
-              className={`intake__bar-seg ${isComplete(s.key) ? 'intake__bar-seg--done' : ''}`}
-              title={s.label}
-            />
-          ))}
+        <div
+          className="intake__bar"
+          role="progressbar"
+          aria-label="پیشرفت تکمیل فرم"
+          aria-valuemin={0}
+          aria-valuemax={SECTIONS.length}
+          aria-valuenow={completedCount}
+        >
+          <span className="intake__bar-current">
+            مرحله {currentSectionIndex + 1} از {SECTIONS.length}: {SECTIONS[currentSectionIndex].label}
+          </span>
+          <span className="intake__bar-track" aria-hidden="true">
+            {SECTIONS.map(s => (
+              <i
+                key={s.key}
+                className={`intake__bar-seg ${isComplete(s.key) ? 'intake__bar-seg--done' : ''}`}
+                title={s.label}
+              />
+            ))}
+          </span>
         </div>
+
+        <ol className="intake__rail" aria-label="مراحل فرم">
+          {SECTIONS.map((section, index) => {
+            const complete = isComplete(section.key)
+            const current = index === currentSectionIndex
+            const state = complete ? 'done' : current ? 'current' : 'upcoming'
+            return (
+              <li
+                key={section.key}
+                className={`intake__rail-step intake__rail-step--${state}`}
+                aria-current={current ? 'step' : undefined}
+              >
+                <span className="intake__rail-marker" aria-hidden="true">{complete ? '✓' : index + 1}</span>
+                <span className="intake__rail-copy">
+                  <strong>{section.short}</strong>
+                  <small>{complete ? 'تکمیل شده' : current ? 'مرحله جاری' : 'در انتظار'}</small>
+                </span>
+              </li>
+            )
+          })}
+        </ol>
 
         <div className="intake__section">
           <h3 className="intake__section-title">۱. اطلاعات پایه کسب‌وکار</h3>
@@ -169,8 +204,10 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
               value={data.businessName}
               onChange={e => updateField('businessName', e.target.value)}
               onBlur={() => markTouched('businessName')}
+              aria-invalid={!!getFieldError('businessName')}
+              aria-describedby={getFieldError('businessName') ? 'businessName-error' : undefined}
             />
-            {getFieldError('businessName') && <span className="intake__error">{getFieldError('businessName')}</span>}
+            {getFieldError('businessName') && <span id="businessName-error" className="intake__error">{getFieldError('businessName')}</span>}
           </div>
           <div className="intake__field">
             <label className="intake__label" htmlFor="productDescription">توضیح محصول / خدمت *</label>
@@ -182,13 +219,16 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
               value={data.productDescription}
               onChange={e => updateField('productDescription', e.target.value)}
               onBlur={() => markTouched('productDescription')}
+              aria-invalid={!!getFieldError('productDescription')}
+              aria-describedby={getFieldError('productDescription') ? 'productDescription-error' : undefined}
             />
-            {getFieldError('productDescription') && <span className="intake__error">{getFieldError('productDescription')}</span>}
+            {getFieldError('productDescription') && <span id="productDescription-error" className="intake__error">{getFieldError('productDescription')}</span>}
           </div>
           <div className="intake__row">
             <div className="intake__field">
-              <label className="intake__label">نوع کسب‌وکار</label>
+              <label className="intake__label" htmlFor="businessType">نوع کسب‌وکار</label>
               <select
+                id="businessType"
                 className="intake__select"
                 value={data.businessType}
                 onChange={e => updateField('businessType', e.target.value as BusinessInput['businessType'])}
@@ -199,8 +239,9 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
               </select>
             </div>
             <div className="intake__field">
-              <label className="intake__label">مدل بازار</label>
+              <label className="intake__label" htmlFor="marketModel">مدل بازار</label>
               <select
+                id="marketModel"
                 className="intake__select"
                 value={data.marketModel}
                 onChange={e => updateField('marketModel', e.target.value as BusinessInput['marketModel'])}
@@ -213,8 +254,9 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
           </div>
           <div className="intake__row">
             <div className="intake__field">
-              <label className="intake__label">مرحله فعلی</label>
+              <label className="intake__label" htmlFor="currentStage">مرحله فعلی</label>
               <select
+                id="currentStage"
                 className="intake__select"
                 value={data.currentStage}
                 onChange={e => updateField('currentStage', e.target.value as BusinessInput['currentStage'])}
@@ -251,8 +293,10 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
               value={data.targetCustomerGuess}
               onChange={e => updateField('targetCustomerGuess', e.target.value)}
               onBlur={() => markTouched('targetCustomerGuess')}
+              aria-invalid={!!getFieldError('targetCustomerGuess')}
+              aria-describedby={getFieldError('targetCustomerGuess') ? 'targetCustomerGuess-error' : undefined}
             />
-            {getFieldError('targetCustomerGuess') && <span className="intake__error">{getFieldError('targetCustomerGuess')}</span>}
+            {getFieldError('targetCustomerGuess') && <span id="targetCustomerGuess-error" className="intake__error">{getFieldError('targetCustomerGuess')}</span>}
           </div>
           <div className="intake__field">
             <label className="intake__label" htmlFor="mainCustomerProblem">مسئله اصلی مشتری *</label>
@@ -264,8 +308,10 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
               value={data.mainCustomerProblem}
               onChange={e => updateField('mainCustomerProblem', e.target.value)}
               onBlur={() => markTouched('mainCustomerProblem')}
+              aria-invalid={!!getFieldError('mainCustomerProblem')}
+              aria-describedby={getFieldError('mainCustomerProblem') ? 'mainCustomerProblem-error' : undefined}
             />
-            {getFieldError('mainCustomerProblem') && <span className="intake__error">{getFieldError('mainCustomerProblem')}</span>}
+            {getFieldError('mainCustomerProblem') && <span id="mainCustomerProblem-error" className="intake__error">{getFieldError('mainCustomerProblem')}</span>}
           </div>
           <div className="intake__field">
             <label className="intake__label" htmlFor="currentAlternative">راه‌حل یا جایگزین فعلی</label>
@@ -280,8 +326,9 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
           </div>
           <div className="intake__row">
             <div className="intake__field">
-              <label className="intake__label">فوریت مسئله</label>
+              <label className="intake__label" htmlFor="urgencyLevel">فوریت مسئله</label>
               <select
+                id="urgencyLevel"
                 className="intake__select"
                 value={data.urgencyLevel}
                 onChange={e => updateField('urgencyLevel', e.target.value as BusinessInput['urgencyLevel'])}
@@ -292,8 +339,9 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
               </select>
             </div>
             <div className="intake__field">
-              <label className="intake__label">توان پرداخت</label>
+              <label className="intake__label" htmlFor="abilityToPay">توان پرداخت</label>
               <select
+                id="abilityToPay"
                 className="intake__select"
                 value={data.abilityToPay}
                 onChange={e => updateField('abilityToPay', e.target.value as BusinessInput['abilityToPay'])}
@@ -319,8 +367,10 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
               value={data.competitors}
               onChange={e => updateField('competitors', e.target.value)}
               onBlur={() => markTouched('competitors')}
+              aria-invalid={!!getFieldError('competitors')}
+              aria-describedby={getFieldError('competitors') ? 'competitors-error' : undefined}
             />
-            {getFieldError('competitors') && <span className="intake__error">{getFieldError('competitors')}</span>}
+            {getFieldError('competitors') && <span id="competitors-error" className="intake__error">{getFieldError('competitors')}</span>}
           </div>
           <div className="intake__field">
             <label className="intake__label" htmlFor="keyDifferentiation">تمایز کلیدی *</label>
@@ -332,8 +382,10 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
               value={data.keyDifferentiation}
               onChange={e => updateField('keyDifferentiation', e.target.value)}
               onBlur={() => markTouched('keyDifferentiation')}
+              aria-invalid={!!getFieldError('keyDifferentiation')}
+              aria-describedby={getFieldError('keyDifferentiation') ? 'keyDifferentiation-error' : undefined}
             />
-            {getFieldError('keyDifferentiation') && <span className="intake__error">{getFieldError('keyDifferentiation')}</span>}
+            {getFieldError('keyDifferentiation') && <span id="keyDifferentiation-error" className="intake__error">{getFieldError('keyDifferentiation')}</span>}
           </div>
           <div className="intake__field">
             <label className="intake__label" htmlFor="marketConstraints">محدودیت‌های بازار</label>
@@ -352,8 +404,8 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
           <h3 className="intake__section-title">۴. کانال‌ها و بودجه</h3>
           <p className="intake__section-desc">مشخص کنید چگونه به مشتریان می‌رسید.</p>
           <div className="intake__field">
-            <label className="intake__label">کانال‌های بازاریابی قابل استفاده *</label>
-            <div className="intake__channels">
+            <span id="availableChannelsLabel" className="intake__label">کانال‌های بازاریابی قابل استفاده *</span>
+            <div className="intake__channels" role="group" aria-labelledby="availableChannelsLabel">
               {channelOptions.map(ch => {
                 const checked = data.availableChannels.includes(ch.value)
                 return (
@@ -395,8 +447,9 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
             </div>
           </div>
           <div className="intake__field">
-            <label className="intake__label">هدف اصلی بازاریابی</label>
+            <label className="intake__label" htmlFor="marketingGoal">هدف اصلی بازاریابی</label>
             <select
+              id="marketingGoal"
               className="intake__select"
               value={data.marketingGoal}
               onChange={e => updateField('marketingGoal', e.target.value as BusinessInput['marketingGoal'])}
@@ -421,13 +474,16 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
               value={data.currentPrice}
               onChange={e => updateField('currentPrice', e.target.value)}
               onBlur={() => markTouched('currentPrice')}
+              aria-invalid={!!getFieldError('currentPrice')}
+              aria-describedby={getFieldError('currentPrice') ? 'currentPrice-error' : undefined}
             />
-            {getFieldError('currentPrice') && <span className="intake__error">{getFieldError('currentPrice')}</span>}
+            {getFieldError('currentPrice') && <span id="currentPrice-error" className="intake__error">{getFieldError('currentPrice')}</span>}
           </div>
           <div className="intake__row">
             <div className="intake__field">
-              <label className="intake__label">مدل قیمت‌گذاری</label>
+              <label className="intake__label" htmlFor="pricingModel">مدل قیمت‌گذاری</label>
               <select
+                id="pricingModel"
                 className="intake__select"
                 value={data.pricingModel}
                 onChange={e => updateField('pricingModel', e.target.value as BusinessInput['pricingModel'])}
@@ -469,8 +525,8 @@ function BusinessIntakeForm({ form, onGenerate, onClear, isGenerating = false }:
           <button className="intake__btn intake__btn--ghost" type="button" onClick={handleClear} disabled={isGenerating}>
             پاک کردن فرم
           </button>
-          <button className="intake__btn intake__btn--primary" type="button" onClick={handleGenerate} disabled={isGenerating}>
-            تولید برنامه بازاریابی
+          <button className="intake__btn intake__btn--primary" type="button" onClick={handleGenerate} disabled={isGenerating} aria-busy={isGenerating}>
+            {isGenerating ? 'در حال تدوین برنامه...' : 'تولید برنامه بازاریابی'}
           </button>
         </div>
       </div>

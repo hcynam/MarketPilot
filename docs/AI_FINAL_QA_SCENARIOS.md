@@ -11,7 +11,7 @@ Sample input summary:
 - Weak differentiation and incomplete competitor details
 
 Expected behavior:
-- AI should ask clarifying questions before final planning.
+- The built-in sample must ask zero clarification questions and immediately build the complete internal plan before optional AI enhancement.
 - Questions should focus on target customer, budget, local competitors, channels, and differentiation.
 
 Pass/fail checklist:
@@ -31,7 +31,7 @@ Sample input summary:
 - Example channels: LinkedIn, content marketing, email, website, demo calls
 
 Expected behavior:
-- AI may go directly to final plan or ask fewer clarifying questions.
+- A complete custom input goes directly to the internal plan and compact strategy patch; only meaningfully incomplete input asks 3-6 questions.
 - Plan should include LinkedIn, content, email, demo or sales-led logic, and CAC/LTV/churn-style KPI thinking where relevant.
 
 Pass/fail checklist:
@@ -98,7 +98,7 @@ Pass/fail checklist:
 Tester notes:
 - This is the expected local no-key behavior.
 
-## 6. Gemini Timeout or Invalid JSON
+## 6. Provider Timeout or Invalid JSON
 
 Sample input summary:
 - Simulate timeout or invalid AI output in a safe test environment
@@ -120,7 +120,7 @@ Tester notes:
 ## 7. Export Check
 
 Sample input summary:
-- Test once with a Gemini-generated plan and once with a fallback plan
+- Test once with an AI-enhanced plan and once with an internal-only plan
 
 Expected behavior:
 - Markdown, Word, PDF, and print all use the existing 17-section report content.

@@ -85,9 +85,9 @@ function KpiDashboard({ kpis }: Props) {
         </button>
       </div>
 
-      <div className="kpi-dashboard__cards" aria-label="کارت‌های KPI">
+      <div className="kpi-dashboard__cards" aria-label="شاخص‌های کلیدی عملکرد">
         {rows.map((row) => (
-          <div
+          <article
             key={row.id}
             className={`kpi-card ${row.enabled ? '' : 'kpi-card--disabled'}`}
           >
@@ -101,24 +101,30 @@ function KpiDashboard({ kpis }: Props) {
                   aria-label={`فعال یا غیرفعال کردن ${row.metric}`}
                 />
                 <span className="kpi-card__toggle-vis" />
+                <span className="kpi-card__state">{row.enabled ? 'فعال' : 'غیرفعال'}</span>
               </label>
-              <span className="kpi-card__name">{row.metric}</span>
+              <div className="kpi-card__title-block">
+                <h4 className="kpi-card__name">{row.metric}</h4>
+                <div className="kpi-card__meta">
+                  <span className="kpi-card__badge">{row.funnelStage}</span>
+                  <span className="kpi-card__freq">{row.frequency}</span>
+                </div>
+              </div>
               <span className={`kpi-card__priority kpi-card__priority--${row.priority.toLowerCase()}`}>
                 {priorityLabels[row.priority] ?? row.priority}
               </span>
             </div>
             <div className="kpi-card__body">
-              <div className="kpi-card__meta">
-                <span className="kpi-card__badge">{row.funnelStage}</span>
-                <span className="kpi-card__freq">{row.frequency}</span>
+              <div className="kpi-card__formula-row">
+                <span className="kpi-card__formula-label">فرمول</span>
+                <code className="kpi-card__formula mp-formula" dir="ltr">{row.formula}</code>
               </div>
-              <div className="kpi-card__formula">{row.formula}</div>
               <div className="kpi-card__inputs">
                 <div className="kpi-card__field">
                   <label className="kpi-card__label">هدف</label>
-                  <input
+                  <textarea
                     className="kpi-card__input"
-                    type="text"
+                    rows={2}
                     value={row.target}
                     onChange={(e) => updateTarget(row.id, e.target.value)}
                     aria-label={`هدف برای ${row.metric}`}
@@ -127,9 +133,9 @@ function KpiDashboard({ kpis }: Props) {
                 </div>
                 <div className="kpi-card__field">
                   <label className="kpi-card__label">معیار مقایسه</label>
-                  <input
+                  <textarea
                     className="kpi-card__input"
-                    type="text"
+                    rows={2}
                     value={row.benchmark}
                     onChange={(e) => updateBenchmark(row.id, e.target.value)}
                     aria-label={`معیار مقایسه برای ${row.metric}`}
@@ -137,9 +143,12 @@ function KpiDashboard({ kpis }: Props) {
                   />
                 </div>
               </div>
-              <div className="kpi-card__interp">{row.interpretation}</div>
+              <div className="kpi-card__interp">
+                <span className="kpi-card__interp-label">تفسیر</span>
+                <p>{row.interpretation}</p>
+              </div>
             </div>
-          </div>
+          </article>
         ))}
       </div>
 

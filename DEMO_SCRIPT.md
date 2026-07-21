@@ -25,8 +25,8 @@
 
 ### Step 3: Generate the Marketing Plan
 - **Click:** **"Generate Marketing Plan"**
-- **Say:** *"The app first sends a structured business brief to the server-side Gemini function for input-quality review. If the input is weak, it asks clarifying questions before final planning; if AI is unavailable, the fallback engine keeps the demo safe."*
-- **Result:** Either clarifying questions appear, or the full marketing plan renders below the form
+- **Say:** *"The built-in sample is explicitly complete, so it skips clarification. MarketPilot first creates the full internal plan, then sends only a compact digest for an optional AI strategy enhancement."*
+- **Result:** The full marketing plan renders; its status clearly shows internal-only, AI-enhanced, or partially enhanced
 
 ### Step 4: Clarifying Questions or 17-Section Report
 - **If questions appear:** Answer the required questions and click **"Generate final plan with answers"**
@@ -74,7 +74,7 @@
 
 ## Tips for Live Demo
 
-- **Keep it under 3 minutes:** Focus on load sample → generate → clarification/fallback → KPI dashboard → export
+- **Keep it under 3 minutes:** Focus on load sample → generate with zero questions → source status → KPI dashboard → export
 - **For 5-minute demo:** Add more section exploration (USP, 7P Mix, Quality Score) and explain the engine architecture
 - **For instructors:** The sample case (MarketPilot AI) demonstrates B2B industrial marketing context, which makes for a richer discussion of targeting and positioning
 - **If AI is unavailable:** Point out the Persian fallback message and continue with the generated baseline plan

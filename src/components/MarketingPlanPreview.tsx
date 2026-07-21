@@ -1,28 +1,30 @@
-import { useState, useCallback } from 'react'
-import type { MarketingPlan } from '../types'
-import { exportMarketingPlanToMarkdown, exportMarketingPlanToWordHtml } from '../lib/markdownExport'
-import { createMarketingPlanPdf, marketingPlanPdfFileName } from '../lib/pdfExport'
+import { useState, useCallback, useMemo } from 'react'
+import type { BusinessInput, MarketingPlan } from '../types'
+import { exportMarketingPlanToMarkdown } from '../lib/markdownExport'
 import KpiDashboard from './KpiDashboard'
+import { reportChapters } from '../lib/reportPresentation'
+import { ActionTimeline, ChapterHeader, ExecutiveSnapshot, ReportDecisionPath, StructuredRows } from './report/ReportVisuals'
+import { createGuestPlanSnapshot } from '../plans/guestPlan'
+import { usePlanAccess } from '../plans/PlanAccessContext'
 import './MarketingPlanPreview.css'
 
 interface Props {
   plan: MarketingPlan
   stale?: boolean
   businessName: string
+  inputData: BusinessInput
+  source?: 'current' | 'saved'
+  savedPlanId?: string
 }
 
-function makeDownloadName(businessName: string, extension: string): string {
-  const base = (businessName || 'MarketPilot-Marketing-Plan')
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    .trim() || 'MarketPilot-Marketing-Plan'
-
-  return `${base}-marketing-plan.${extension}`
-}
-
-function MarketingPlanPreview({ plan, stale, businessName }: Props) {
+function MarketingPlanPreview({ plan, stale, businessName, inputData, source = 'current', savedPlanId }: Props) {
   const { score, maxScore, details } = plan.qualityScore
   const [copied, setCopied] = useState(false)
-  const [pdfBusy, setPdfBusy] = useState(false)
+  const { requestAction, busyAction } = usePlanAccess()
+  const snapshot = useMemo(() => ({
+    ...createGuestPlanSnapshot({ businessName, inputData, outputData: plan }),
+    ...(savedPlanId ? { guestId: savedPlanId, savedPlanId, origin: 'authenticated' as const } : {}),
+  }), [businessName, inputData, plan, savedPlanId])
 
   const handleCopyMarkdown = useCallback(() => {
     const md = exportMarketingPlanToMarkdown(plan, businessName)
@@ -32,82 +34,70 @@ function MarketingPlanPreview({ plan, stale, businessName }: Props) {
     })
   }, [plan, businessName])
 
-  const handlePrint = useCallback(() => {
-    window.print()
-  }, [])
-
-  const handleDownloadWord = useCallback(() => {
-    const html = exportMarketingPlanToWordHtml(plan, businessName)
-    const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = makeDownloadName(businessName, 'doc')
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-  }, [plan, businessName])
-
-  const handleDownloadPdf = useCallback(() => {
-    setPdfBusy(true)
-    window.setTimeout(() => {
-      try {
-        const blob = createMarketingPlanPdf(plan, businessName)
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = marketingPlanPdfFileName(businessName)
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-        URL.revokeObjectURL(url)
-      } finally {
-        setPdfBusy(false)
-      }
-    }, 20)
-  }, [plan, businessName])
+  const handlePrint = useCallback(() => { void requestAction('print', snapshot) }, [requestAction, snapshot])
+  const handleDownloadWord = useCallback(() => { void requestAction('word', snapshot) }, [requestAction, snapshot])
+  const handleDownloadPdf = useCallback(() => { void requestAction('pdf', snapshot) }, [requestAction, snapshot])
+  const handleSave = useCallback(() => { void requestAction('save', snapshot) }, [requestAction, snapshot])
 
   const copyLabel = copied ? 'Markdown کپی شد' : 'کپی Markdown'
-  const pdfLabel = pdfBusy ? 'در حال آماده‌سازی PDF' : 'دانلود PDF'
+  const wordLabel = busyAction === 'word' ? 'در حال آماده‌سازی Word' : 'دانلود Word'
 
   return (
-    <section className="preview">
+    <section className="preview" data-mp-report-root>
       <div className="container">
-        <div className="preview__card">
+        <div className="preview__card mp-document">
           {stale && (
-            <div className="preview__stale-banner">
+            <div className="preview__stale-banner status-strip status-strip--warning">
               اطلاعات فرم بعد از تولید این برنامه تغییر کرده است. محتوای زیر ممکن است با ورودی‌های فعلی هماهنگ نباشد؛
               برای نسخه تازه، دوباره روی «تولید برنامه بازاریابی» کلیک کنید.
             </div>
           )}
 
           <div className="preview__header">
-            <div>
+            <div className="preview__cover-copy">
               <span className="preview__badge">برنامه بازاریابی تولید شد</span>
-              <h2 className="preview__title">{businessName || 'برنامه بازاریابی'}</h2>
+              <h2 className="preview__title mp-document-heading">{businessName || 'برنامه بازاریابی'}</h2>
+              <ReportDecisionPath />
             </div>
             <div className="preview__header-actions">
-              <div className="preview__score-pill">
-                <span className="preview__score-num">{score}/{maxScore}</span>
+              <div
+                className="preview__score-pill"
+                role="meter"
+                aria-label="امتیاز کیفیت برنامه"
+                aria-valuemin={0}
+                aria-valuemax={maxScore}
+                aria-valuenow={score}
+              >
+                <span className="preview__score-num mp-data">{score}/{maxScore}</span>
                 <span className="preview__score-label">کیفیت</span>
               </div>
-              <div className="preview__export-actions" aria-label="خروجی‌های گزارش">
-                <button className="preview__copy-btn preview__action-btn" type="button" onClick={handleCopyMarkdown}>
-                  {copyLabel}
-                </button>
-                <button className="preview__action-btn" type="button" onClick={handleDownloadWord}>
-                  دانلود Word
-                </button>
-                <button className="preview__action-btn" type="button" onClick={handlePrint}>
-                  چاپ گزارش
-                </button>
-                <button className="preview__action-btn" type="button" onClick={handleDownloadPdf} disabled={pdfBusy}>
-                  {pdfLabel}
-                </button>
+              <div className="preview__export-actions" role="toolbar" aria-label="خروجی‌های گزارش">
+                <div className="preview__export-primary" role="group" aria-label="خروجی‌های اصلی">
+                  <button className="preview__action-btn preview__action-btn--primary" type="button" onClick={handleDownloadPdf} disabled={Boolean(busyAction)} aria-busy={busyAction === 'pdf'}>
+                    دریافت PDF
+                  </button>
+                  <button className="preview__action-btn preview__action-btn--primary-alt" type="button" onClick={handleDownloadWord} disabled={Boolean(busyAction)} aria-busy={busyAction === 'word'}>
+                    {wordLabel}
+                  </button>
+                </div>
+                <div className="preview__export-secondary" role="group" aria-label="عملیات دیگر">
+                  <button className="preview__action-btn" type="button" onClick={handleSave} disabled={Boolean(busyAction) || source === 'saved'}>
+                    {source === 'saved' ? 'ذخیره‌شده' : busyAction === 'save' ? 'در حال ذخیره…' : 'ذخیره برنامه'}
+                  </button>
+                  <button className="preview__action-btn" type="button" onClick={handlePrint} disabled={Boolean(busyAction)} aria-busy={busyAction === 'print'}>
+                    چاپ گزارش
+                  </button>
+                  <button className={`preview__copy-btn preview__action-btn ${copied ? 'preview__action-btn--success' : ''}`} type="button" onClick={handleCopyMarkdown} aria-live="polite">
+                    {copyLabel}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
+
+          <ExecutiveSnapshot plan={plan} businessName={businessName} />
+
+          <ChapterHeader {...reportChapters[0]} />
 
           <CollapsibleSection title="۱. خلاصه کسب‌وکار">
             <p className="preview__text">{plan.businessSummary}</p>
@@ -136,8 +126,13 @@ function MarketingPlanPreview({ plan, stale, businessName }: Props) {
             <p className="preview__text">{plan.targetMarket}</p>
           </CollapsibleSection>
 
+          <ChapterHeader {...reportChapters[1]} />
+
           <CollapsibleSection title="۵. بیانیه جایگاه‌یابی">
-            <p className="preview__text">{plan.positioningStatement}</p>
+            <div className="preview__positioning-block">
+              <span>بیانیه تصمیم</span>
+              <p className="preview__text">{plan.positioningStatement}</p>
+            </div>
           </CollapsibleSection>
 
           <CollapsibleSection title="۶. پرسونای مشتریان">
@@ -161,12 +156,10 @@ function MarketingPlanPreview({ plan, stale, businessName }: Props) {
           </CollapsibleSection>
 
           <CollapsibleSection title="۹. تحلیل رقبا و جایگزین‌ها">
-            <div className="preview__list">
-              {plan.competitorAnalysis.map((c, i) => (
-                <div key={i} className="preview__list-item">{c}</div>
-              ))}
-            </div>
+            <StructuredRows caption="ماتریس تحلیل رقبا و جایگزین‌های موجود در برنامه" items={plan.competitorAnalysis} />
           </CollapsibleSection>
+
+          <ChapterHeader {...reportChapters[2]} />
 
           <CollapsibleSection title="۱۰. آمیخته بازاریابی 7P">
             <div className="preview__mix-table">
@@ -203,40 +196,30 @@ function MarketingPlanPreview({ plan, stale, businessName }: Props) {
           </CollapsibleSection>
 
           <CollapsibleSection title="۱۲. استراتژی کانال دیجیتال">
-            <div className="preview__list">
-              {plan.channelStrategy.map((c, i) => {
-                const isPriority = c.startsWith('Priority Channels') || c.startsWith('Channel-Funnel')
-                return (
-                  <div key={i} className={`preview__list-item ${isPriority ? 'preview__list-item--highlight' : ''}`}>{c}</div>
-                )
-              })}
+            <StructuredRows caption="ماتریس راهبرد کانال‌های موجود در برنامه" items={plan.channelStrategy} firstColumn="محور کانال" secondColumn="راهبرد" />
+          </CollapsibleSection>
+
+          <ChapterHeader {...reportChapters[3]} />
+
+          <CollapsibleSection title="۱۳. پیشنهاد اولیه قیمت‌گذاری">
+            <div className="preview__pricing-note">
+              <span>جهت قیمت‌گذاری موجود</span>
+              <p className="preview__text">{plan.pricingRecommendation}</p>
             </div>
           </CollapsibleSection>
 
-          <CollapsibleSection title="۱۳. پیشنهاد اولیه قیمت‌گذاری">
-            <p className="preview__text">{plan.pricingRecommendation}</p>
-          </CollapsibleSection>
+          <ChapterHeader {...reportChapters[4]} />
 
           <CollapsibleSection title="۱۴. داشبورد KPI">
             <KpiDashboard kpis={plan.kpiDashboard} />
           </CollapsibleSection>
 
           <CollapsibleSection title="۱۵. برنامه اقدام ۳۰ روزه">
-            <div className="preview__weeks">
-              {plan.actionPlan.map((week, i) => (
-                <div key={i} className="preview__week-card">
-                  <WeekContent text={week} />
-                </div>
-              ))}
-            </div>
+            <ActionTimeline items={plan.actionPlan} />
           </CollapsibleSection>
 
           <CollapsibleSection title="۱۶. ریسک‌ها و فرضیات">
-            <div className="preview__list preview__list--bullets">
-              {plan.risksAssumptions.map((r, i) => (
-                <div key={i} className="preview__list-item">{r}</div>
-              ))}
-            </div>
+            <StructuredRows caption="جدول ریسک‌ها، فرضیات و محدودیت‌های ثبت‌شده" items={plan.risksAssumptions} firstColumn="نوع" secondColumn="شرح موجود" />
           </CollapsibleSection>
 
           <CollapsibleSection title="۱۷. امتیاز کیفیت برنامه بازاریابی">
@@ -266,8 +249,10 @@ function CollapsibleSection({ title, defaultOpen = true, children }: {
         <span className="preview__section-title">{title}</span>
         <span className="preview__section-arrow">{open ? '−' : '+'}</span>
       </button>
-      <div className="preview__section-body">
-        {children}
+      <div className="preview__section-reveal" aria-hidden={!open} inert={!open}>
+        <div className="preview__section-body">
+          {children}
+        </div>
       </div>
     </div>
   )
@@ -294,26 +279,6 @@ function PersonaContent({ text }: { text: string }) {
   )
 }
 
-function WeekContent({ text }: { text: string }) {
-  const colonIdx = text.indexOf(':')
-  if (colonIdx === -1) return <p className="preview__text">{text}</p>
-
-  const header = text.slice(0, colonIdx)
-  const body = text.slice(colonIdx + 1).trim()
-  const items = body.split(';').map(s => s.trim()).filter(Boolean)
-
-  return (
-    <>
-      <div className="preview__week-header">{header}</div>
-      <ul className="preview__week-list">
-        {items.map((item, i) => (
-          <li key={i} className="preview__week-item">{item}</li>
-        ))}
-      </ul>
-    </>
-  )
-}
-
 function QualityContent({ score, maxScore, details }: {
   score: number
   maxScore: number
@@ -327,8 +292,15 @@ function QualityContent({ score, maxScore, details }: {
         <span className="preview__quality-big">{score}/{maxScore}</span>
         <span className="preview__quality-pct">{pct}%</span>
       </div>
-      <div className="preview__quality-bar">
-        <div className="preview__quality-fill" style={{ width: `${pct}%` }} />
+      <div
+        className="preview__quality-bar"
+        role="progressbar"
+        aria-label="درصد کیفیت برنامه"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+      >
+        <div className="preview__quality-fill" style={{ transform: `scaleX(${pct / 100})` }} />
       </div>
       <div className="preview__quality-checklist">
         {details.map((d, i) => {

@@ -7,18 +7,17 @@
 
 ## Netlify Environment
 
-- [ ] `GROQ_API_KEY` is configured as a Netlify Secret and is available to Functions.
-- [ ] `GROQ_MODEL` is configured as a non-secret variable with `qwen/qwen3-32b`.
-- [ ] `AI_PROVIDER` is configured as a non-secret variable with `groq`.
-- [ ] `AI_PROVIDER_TIMEOUT_MS` is configured as a non-secret variable with `18000`.
+- [ ] `AI_PROVIDER` is set to `groq` or `gemini`.
+- [ ] Only the selected provider's server-side API key and model are configured.
+- [ ] For Groq, `GROQ_MODEL=openai/gpt-oss-120b` is configured and the project permits that model.
+- [ ] `AI_PROVIDER_TIMEOUT_MS` is optionally configured, for example `25000` (`AI_TIMEOUT_MS` and `GEMINI_TIMEOUT_MS` are legacy fallbacks).
 - [ ] No `VITE_` secret variables are used.
 - [ ] Site is redeployed after environment variable changes.
-- [ ] Gemini and OpenRouter variables are not used by the production runtime.
 
 ## Function and AI Flow
 
 - [ ] Test the AI function indirectly through the UI Generate action.
-- [ ] Confirm clarifying questions can appear when input is weak.
+- [ ] Confirm the built-in sample asks zero questions and incomplete custom input asks 3-6 questions.
 - [ ] Confirm required clarifying answers block final generation until answered.
 - [ ] Confirm a complete input can reach the final 17-section plan.
 - [ ] Confirm fallback by removing or invalidating the key in a safe test environment.
@@ -47,6 +46,6 @@
 
 ## Portfolio / LinkedIn Positioning
 
-- Position as: "AI-assisted, course-informed structured marketing planning with server-side Groq integration and deterministic fallback."
+- Position as: "Complete internal marketing planning with server-side, budget-guarded AI strategy enhancement."
 - Avoid claiming it is a fully autonomous marketing consultant.
 - Mention that generated plans are advisory and should be reviewed before use.

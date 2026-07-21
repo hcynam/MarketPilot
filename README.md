@@ -1,10 +1,10 @@
 # MarketPilot AI
 
-A lightweight AI-assisted marketing plan generator for SMEs and digital products. Built as a React + TypeScript + Vite single-page application with a secure Netlify Function boundary for Groq and a deterministic fallback engine.
+A lightweight AI-assisted marketing plan generator for SMEs and digital products. Built as a React + TypeScript + Vite single-page application with a secure Netlify Function boundary and a deterministic completeness engine.
 
 ## Why It Was Built
 
-Created as a course project to demonstrate practical application of marketing concepts. It takes structured business/product information and generates a concise 17-section marketing plan using Groq when configured, with rule-based fallback when AI is unavailable.
+It takes structured business/product information, always creates a complete 17-section plan locally, and can use Groq or Gemini to apply a compact, validated strategy enhancement when configured.
 
 ## Course Relevance — Marketing Course Project
 
@@ -24,10 +24,12 @@ Covers 17 core marketing concepts as an applied software project:
 ## Key Features
 
 - Multi-step intake form (5 sections, 18 fields)
-- AI review flow with clarifying questions before final plan generation
-- Two-step AI flow: input-quality review first, final 17-section plan second
-- Server-side Groq integration through a Netlify Function
-- Deterministic fallback marketing plan engine (17 sections)
+- Deterministic, context-aware completeness check with 3-6 clarification questions only when needed
+- Built-in sample explicitly skips clarification
+- Complete local 17-section plan plus compact, field-validated AI strategy patches
+- Server-side Groq or Gemini integration through a Netlify Function
+- Conservative request preflight, typed provider errors, safe partial-patch merging, and a two-call provider ceiling
+- Strict Groq JSON Schema output with `openai/gpt-oss-120b` by default; other configured models retain validated JSON Object Mode
 - Interactive KPI dashboard (12 editable metrics with toggles)
 - Collapsible sections for easy navigation
 - Copy as Markdown for external refinement
@@ -36,7 +38,7 @@ Covers 17 core marketing concepts as an applied software project:
 - Persian (RTL) bilingual support
 - localStorage autosave
 - Quality score with checklist breakdown
-- Existing Markdown, Word, PDF, and print exports for AI or fallback plans
+- Existing Markdown, Word, PDF, and print exports for internal or AI-enhanced plans
 
 ## Tech Stack
 
@@ -47,24 +49,18 @@ Covers 17 core marketing concepts as an applied software project:
 
 ## AI and Deployment Notes
 
-The production AI path uses a hybrid architecture: the existing deterministic engine first creates a complete 17-section baseline in the browser, Groq returns a smaller strategic enhancement patch, and the Netlify Function validates and deterministically merges that patch. A post-merge quality gate allows one patch-only repair retry; if quality still fails, the baseline remains the final report. The form, report renderer, KPI dashboard, and Markdown/Word/PDF/print exports keep their existing contracts.
-
-Only a compact baseline digest is sent onward to Groq; the full baseline remains inside the Function for merging. Complete inputs, including the built-in sample, skip clarification and go directly to final-plan enhancement. Incomplete or strategically ambiguous inputs use the questions flow.
-
-- Groq calls run through `/.netlify/functions/marketing-ai` using `qwen/qwen3-32b` by default.
-- `GROQ_API_KEY` is server-side only and must be stored as a Netlify Secret.
-- `GROQ_MODEL`, `AI_PROVIDER`, and `AI_PROVIDER_TIMEOUT_MS` are normal non-secret Netlify variables.
-- Do not use `VITE_GROQ_API_KEY` and do not commit a real `.env` file.
-- Gemini and OpenRouter are deprecated for this project.
+- Provider calls run through `/.netlify/functions/marketing-ai`.
+- Groq/Gemini API keys must stay in Netlify environment variables and must never be exposed to frontend code.
+- Do not use a `VITE_` provider key and do not commit a real `.env` file.
 - Local Vite dev without a Netlify Function environment may trigger the fallback engine.
 - For full AI testing, use a Netlify deployment or a Netlify local function environment.
+- Strict GPT-OSS strategy requests fall back once to validated JSON Object Mode only for Groq `json_validate_failed`; all other responses still use the same local parse/normalize/validate/merge pipeline.
 - See `NETLIFY_ENV_SETUP.md`, `docs/DEPLOYMENT_READINESS_CHECKLIST.md`, and `docs/AI_FINAL_QA_SCENARIOS.md`.
-- Use `docs/AI_HYBRID_QA_CHECKLIST.md` for the five required hybrid release scenarios.
 
 ## How to Run Locally
 
 ```bash
-cd D:\MarketPilotAI
+cd D:\InvestmentPlatform\OpenCodeTest
 npm install
 npm run dev     # Development server
 npm run build   # Production build
@@ -76,8 +72,8 @@ npm run preview # Preview production build
 1. Open the app
 2. Click **Load Sample Case Study**
 3. Click **Generate Marketing Plan**
-4. If Groq is unavailable locally, the deterministic fallback plan renders safely
-5. If Groq is configured, answer required clarifying questions when requested
+4. The built-in sample renders without clarification; incomplete custom inputs receive only decision-relevant questions
+5. If a provider is configured, valid strategy improvements are merged into the complete internal plan
 6. Browse the 17-section collapsible report
 7. Explore the KPI dashboard — toggle metrics, edit targets
 8. Click **Copy as Markdown** to export
@@ -85,7 +81,7 @@ npm run preview # Preview production build
 
 ## Known Limitations
 
-- Groq generation requires Netlify Function environment variables in deployed/function-enabled environments
+- AI enhancement requires Netlify Function environment variables in deployed/function-enabled environments
 - Local Vite dev without the Netlify function falls back to the deterministic engine
 - Generated plans are advisory and should be reviewed before use
 - KPI values are planning assumptions, not real campaign data

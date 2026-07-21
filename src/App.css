@@ -1,25 +1,179 @@
 /* AI flow status */
 .app__ai-status {
-  padding: 0 0 18px;
-  background: var(--bg-secondary);
+  padding: 0 0 var(--mp-space-6);
+  background: var(--mp-bg);
 }
 
 .app__ai-status-card {
-  border: 1px solid #c7d2fe;
-  border-radius: 8px;
-  background: #eef2ff;
-  color: #312e81;
-  padding: 14px 18px;
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: var(--mp-space-3);
+  border: 1px solid var(--mp-info-line);
+  border-radius: var(--mp-radius-surface);
+  background: var(--mp-info-soft);
+  color: var(--mp-info);
+  padding: var(--mp-space-4) var(--mp-space-6);
+  font-weight: 600;
   line-height: 1.8;
-  box-shadow: 0 10px 28px rgba(79, 70, 229, 0.08);
 }
 
-.app__ai-status--fallback .app__ai-status-card,
-.app__ai-status--error .app__ai-status-card {
-  border-color: #fed7aa;
-  background: #fff7ed;
-  color: #9a3412;
+.status-strip {
+  border: 1px solid var(--mp-info-line);
+  border-radius: var(--mp-radius-control);
+  background: var(--mp-info-soft);
+  color: var(--mp-info);
+}
+
+.status-strip--success {
+  border-color: var(--mp-success-line);
+  background: var(--mp-success-soft);
+  color: var(--mp-success);
+}
+
+.status-strip--warning {
+  border-color: var(--mp-warning-line);
+  background: var(--mp-warning-soft);
+  color: var(--mp-warning);
+}
+
+.status-strip--danger {
+  border-color: var(--mp-danger-line);
+  background: var(--mp-danger-soft);
+  color: var(--mp-danger);
+}
+
+.status-strip--loading {
+  border-color: var(--mp-line-strong);
+  background: var(--mp-surface-subtle);
+  color: var(--mp-ink);
+}
+
+.app__ai-status-card--loading {
+  border-color: var(--mp-line-strong);
+  background: var(--mp-surface-subtle);
+  color: var(--mp-ink);
+}
+
+.app__ai-status-icon {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--mp-line-strong);
+  border-radius: var(--mp-radius-control);
+  background: var(--mp-surface);
+  color: var(--mp-primary);
+}
+
+.status-strip--loading .app__ai-status-icon path {
+  stroke-dasharray: 28;
+  stroke-dashoffset: 28;
+  animation: decision-pulse-path 900ms var(--mp-ease-out) infinite;
+}
+
+.status-strip--loading .app__ai-status-icon circle {
+  animation: decision-pulse-node 900ms ease-in-out infinite;
+}
+
+.status-strip--loading .app__ai-status-icon circle:nth-of-type(2) { animation-delay: 90ms; }
+.status-strip--loading .app__ai-status-icon circle:nth-of-type(3) { animation-delay: 180ms; }
+.status-strip--loading .app__ai-status-icon circle:nth-of-type(4) { animation-delay: 270ms; }
+
+@keyframes decision-pulse-path {
+  45%, 100% { stroke-dashoffset: 0; }
+}
+
+@keyframes decision-pulse-node {
+  0%, 100% { opacity: 0.45; }
+  45% { opacity: 1; }
+}
+
+.app__ai-status-content {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.app__ai-status-content strong {
+  font-size: var(--mp-text-sm);
+  line-height: 1.8;
+}
+
+.app__ai-status-content small {
+  color: var(--mp-muted);
+  font-size: var(--mp-text-xs);
+  font-weight: 500;
+  line-height: 1.75;
+}
+
+.app__ai-status-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  direction: ltr;
+}
+
+.app__ai-status-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mp-primary);
+  animation: app-ai-status-dot 1.1s ease-in-out infinite;
+}
+
+.app__ai-status-dots i:nth-child(2) { animation-delay: 140ms; }
+.app__ai-status-dots i:nth-child(3) { animation-delay: 280ms; }
+
+@keyframes app-ai-status-dot {
+  0%, 70%, 100% { opacity: 0.28; }
+  35% { opacity: 1; }
+}
+
+@media (max-width: 600px) {
+  .app__ai-status-card {
+    align-items: flex-start;
+    padding: var(--mp-space-4);
+  }
+
+  .app__ai-status-dots {
+    align-self: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app__ai-status-dots i {
+    animation: none;
+    opacity: 0.7;
+  }
+
+  .status-strip--loading .app__ai-status-icon path,
+  .status-strip--loading .app__ai-status-icon circle {
+    animation: none;
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+.app__ai-status--internal_only .app__ai-status-card {
+  border-color: var(--mp-warning-line);
+  background: var(--mp-warning-soft);
+  color: var(--mp-warning);
+}
+
+.app__ai-status--ai_enhanced .app__ai-status-card {
+  border-color: var(--mp-success-line);
+  background: var(--mp-success-soft);
+  color: var(--mp-success);
+}
+
+.app__ai-status--ai_partially_enhanced .app__ai-status-card {
+  border-color: var(--mp-info-line);
+  background: var(--mp-info-soft);
+  color: var(--mp-info);
 }
 
 /* Print: hide non-plan sections when a plan exists */

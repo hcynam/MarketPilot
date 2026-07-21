@@ -1,3 +1,54 @@
 node_modules
 dist
 *.tsbuildinfo
+
+# Environment and secret files
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+.secrets/
+
+# Caches, logs, and temporary files
+.cache/
+.vite/
+coverage/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.eslintcache
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+.DS_Store
+Thumbs.db
+
+# Local Netlify folder
+.netlify
+
+# Impeccable machine-local caches and live sessions
+.impeccable/config.local.json
+.impeccable/hook.cache.json
+.impeccable/hook.pending.json
+.impeccable/live/
+.impeccable/critique/
+.impeccable-live.json
+.impeccable-live/
+
+.agents/
+.codex/
+output/

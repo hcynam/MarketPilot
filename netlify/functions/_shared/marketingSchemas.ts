@@ -1,5 +1,5 @@
 export type ClarifyingQuestionExpectedAnswerType = 'text' | 'number' | 'choice' | 'multiChoice'
-export type ClarifyingQuestionPriority = 'بالا' | 'متوسط' | 'پایین'
+export type ClarifyingQuestionPriority = 'high' | 'medium' | 'low'
 export type ClarifyingDecisionImpact =
   | 'segmentation'
   | 'positioning'
@@ -11,11 +11,13 @@ export type ClarifyingDecisionImpact =
   | 'competition'
   | 'customer'
   | 'offer'
+  | 'trust'
+  | 'distribution'
+  | 'goal'
   | 'other'
 
 export interface ClarifyingQuestion {
   id: string
-  label: string
   question: string
   whyItMatters: string
   expectedAnswerType: ClarifyingQuestionExpectedAnswerType
@@ -35,133 +37,138 @@ export interface ClarifyingQuestionsResponse {
   assumptionsIfProceeding: string[]
 }
 
-export type AIPlanSectionContentType =
-  | 'paragraph'
-  | 'list'
-  | 'cards'
-  | 'table'
-  | 'kpi'
-  | 'actionPlan'
-  | 'score'
-
-export interface AIChannelRecommendation {
-  channel: string
-  funnelStage: string
-  goal: string
-  action: string
-  kpi: string
-  risk: string
-  budgetFit: string
+export interface AIStrategyPatch {
+  diagnosis?: string
+  assumptions?: string[]
+  targetMarket?: {
+    primarySegment?: string
+    secondarySegment?: string
+    selectionReason?: string
+  }
+  positioning?: {
+    positioningStatement?: string
+    valueProposition?: string
+    usp?: string
+    proofNeeded?: string[]
+  }
+  personas?: Array<{
+    label?: string
+    profile?: string
+    pain?: string
+    motivation?: string
+    objection?: string
+    buyingTrigger?: string
+  }>
+  channelPriorities?: Array<{
+    channel?: string
+    funnelRole?: string
+    recommendedAction?: string
+    kpi?: string
+    rationale?: string
+  }>
+  pricingDirection?: {
+    recommendation?: string
+    rationale?: string
+    validationExperiment?: string
+  }
+  kpis?: Array<{
+    name?: string
+    formula?: string
+    initialTarget?: string
+    reviewFrequency?: string
+  }>
+  actionPlan?: Array<{
+    period?: string
+    focus?: string
+    actions?: string[]
+    successMetric?: string
+  }>
+  risks?: Array<{
+    risk?: string
+    mitigation?: string
+  }>
 }
 
-export interface AI7PItem {
-  element: string
-  diagnosis: string
-  recommendation: string
-  action: string
+export interface PatchMergeDiagnostic {
+  acceptedPatchAreas: string[]
+  rejectedPatchAreas: Array<{
+    area: string
+    reason: string
+  }>
+  usablePatch: boolean
 }
 
-export interface AIFunnelStageItem {
-  stage: string
-  customerMindset: string
-  action: string
-  channel: string
-  kpi: string
+export interface StrategyPatchValidationResult extends PatchMergeDiagnostic {
+  patch: AIStrategyPatch
+  normalization: PatchNormalizationDiagnostic
 }
 
-export interface AISegmentCard {
-  segmentName: string
-  description: string
-  pain: string
-  accessPath: string
-  willingnessToPay: string
-  priority: ClarifyingQuestionPriority
+export interface StrategyPatchResponse {
+  patch: AIStrategyPatch
+  diagnostic: PatchMergeDiagnostic
 }
 
-export interface AIPersonaCard {
-  name: string
-  profile: string
-  needs: string[]
-  objections: string[]
-  trigger: string
-  message: string
+export type PatchWrapperSource = 'root' | 'patch' | 'strategyPatch' | 'data' | 'result'
+
+export interface PatchNormalizationDiagnostic {
+  rawTopLevelKeys: string[]
+  unwrappedFrom: PatchWrapperSource
+  normalizedTopLevelKeys: string[]
+  recognizedPatchAreas: string[]
+  unknownTopLevelKeys: string[]
 }
 
-export interface AIQualityScore {
-  score: number
-  strengths: string[]
-  weaknesses: string[]
-  missingInputs: string[]
-  improvementSuggestions: string[]
+export interface ProviderResponseDiagnostic {
+  providerHttpStatus?: number
+  providerFinishReason?: string
+  providerContentChars: number
+  providerReasoningChars?: number
+  parsedJson: boolean
+  rawTopLevelKeys: string[]
+  unwrappedFrom?: PatchWrapperSource
+  normalizedTopLevelKeys: string[]
+  recognizedPatchAreas: string[]
+  unknownTopLevelKeys: string[]
+  acceptedPatchAreas: string[]
+  rejectedPatchAreas: Array<{
+    area: string
+    reason: string
+  }>
 }
 
-export type AIPlanSectionContent =
-  | string
-  | string[]
-  | AIChannelRecommendation[]
-  | AI7PItem[]
-  | AIFunnelStageItem[]
-  | AISegmentCard[]
-  | AIPersonaCard[]
-  | AIQualityScore
-  | Record<string, unknown>
-  | Array<Record<string, unknown>>
+export type ProviderRequestFormat = 'strict_json_schema' | 'json_object' | 'json_object_fallback'
 
-export interface AIPlanSection {
-  id: number
-  title: string
-  contentType: AIPlanSectionContentType
-  content: AIPlanSectionContent
+export interface ProviderAttemptDiagnostic {
+  providerRequestFormat: ProviderRequestFormat
+  structuredFallbackAttempted: boolean
+  structuredFallbackSucceeded: boolean
+  providerHttpStatus?: number
+  providerErrorCode?: string
+  providerErrorType?: string
+  providerRequestId?: string
 }
 
-export interface AIKpiItem {
-  name: string
-  reason: string
-  formula: string
-  target: string
-  channel: string
-  reviewFrequency: string
-  riskOrCaution: string
+export interface RequestPreflightDiagnostic {
+  mode: 'clarification' | 'strategy_patch'
+  provider: 'groq' | 'gemini'
+  selectedModel: string
+  systemPromptChars: number
+  userPromptChars: number
+  compactBusinessBriefChars: number
+  baselineDigestChars: number
+  clarificationAnswerChars: number
+  structuredOutputSchemaChars?: number
+  estimatedInputTokens: number
+  requestedOutputTokens: number
+  totalEstimatedTokens: number
+  compressionApplied: boolean
+  optionalContextRemoved: boolean
+  blockedLocally: boolean
+  providerRequestFormat?: ProviderRequestFormat
+  structuredFallbackAttempted?: boolean
+  structuredFallbackSucceeded?: boolean
+  providerHttpStatus?: number
+  providerErrorCode?: string
+  providerErrorType?: string
+  providerRequestId?: string
 }
-
-export interface AIActionPlanItem {
-  week: number
-  focus: string
-  actions: string[]
-  successMetric: string
-}
-
-export interface AIFinalMarketingPlanResponse {
-  businessName: string
-  language: 'fa'
-  planType: string
-  inputQualityDiagnosis: string
-  assumptions: string[]
-  sections: AIPlanSection[]
-  kpis: AIKpiItem[]
-  actionPlan30Days: AIActionPlanItem[]
-  risks: string[]
-  qualityScore: AIQualityScore
-}
-
-export const requiredMarketingPlanSections = [
-  { id: 1, title: 'خلاصه کسب‌وکار' },
-  { id: 2, title: 'مرحله توسعه مشتری' },
-  { id: 3, title: 'بخش‌های بازار' },
-  { id: 4, title: 'بازار هدف' },
-  { id: 5, title: 'بیانیه جایگاه‌یابی' },
-  { id: 6, title: 'پرسونای مشتریان' },
-  { id: 7, title: 'ارزش پیشنهادی' },
-  { id: 8, title: 'پیشنهاد فروش منحصربه‌فرد (USP)' },
-  { id: 9, title: 'تحلیل رقبا و جایگزین‌ها' },
-  { id: 10, title: 'آمیخته بازاریابی 7P' },
-  { id: 11, title: 'قیف و سفر مشتری' },
-  { id: 12, title: 'استراتژی کانال دیجیتال' },
-  { id: 13, title: 'پیشنهاد اولیه قیمت‌گذاری' },
-  { id: 14, title: 'داشبورد KPI' },
-  { id: 15, title: 'برنامه اقدام ۳۰ روزه' },
-  { id: 16, title: 'ریسک‌ها و فرضیات' },
-  { id: 17, title: 'امتیاز کیفیت برنامه بازاریابی' },
-] as const
-
-export type RequiredMarketingPlanSectionId = typeof requiredMarketingPlanSections[number]['id']

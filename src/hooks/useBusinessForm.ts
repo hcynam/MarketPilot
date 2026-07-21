@@ -2,6 +2,12 @@ import { useState, useCallback, useEffect } from 'react'
 import type { BusinessInput } from '../types'
 import { defaultBusinessInput, STORAGE_KEY } from '../types'
 import { sampleBusiness } from '../data/sample'
+import {
+  builtInSampleOrigin,
+  originAfterMeaningfulEdit,
+  userInputOrigin,
+  type BusinessInputOrigin,
+} from '../ai/sampleState'
 
 interface FormErrors {
   [key: string]: string
@@ -15,6 +21,8 @@ function loadDraft(): BusinessInput {
       const draft = { ...defaultBusinessInput, ...parsed }
       if (isSampleCaseDraft(draft)) {
         localStorage.removeItem(STORAGE_KEY)
+      } else {
+        return { ...draft, availableChannels: [...(draft.availableChannels ?? [])] }
       }
     }
   } catch { /* ignore corrupted data */ }
@@ -45,6 +53,7 @@ export function useBusinessForm() {
   const [data, setData] = useState<BusinessInput>(loadDraft)
   const [errors, setErrors] = useState<FormErrors>({})
   const [touched, setTouched] = useState<Set<string>>(new Set())
+  const [origin, setOrigin] = useState<BusinessInputOrigin>(userInputOrigin)
 
   useEffect(() => {
     saveDraft(data)
@@ -54,26 +63,30 @@ export function useBusinessForm() {
     field: K,
     value: BusinessInput[K],
   ) => {
+    const changed = JSON.stringify(data[field]) !== JSON.stringify(value)
     setData(prev => ({ ...prev, [field]: value }))
+    setOrigin(current => originAfterMeaningfulEdit(current, changed))
     setErrors(prev => {
       const next = { ...prev }
       delete next[field]
       return next
     })
-  }, [])
+  }, [data])
 
   const markTouched = useCallback((field: string) => {
     setTouched(prev => new Set(prev).add(field))
   }, [])
 
   const loadSample = useCallback(() => {
-    setData({ ...sampleBusiness })
+    setData({ ...sampleBusiness, availableChannels: [...sampleBusiness.availableChannels] })
+    setOrigin(builtInSampleOrigin)
     setErrors({})
     setTouched(new Set())
   }, [])
 
   const clearForm = useCallback(() => {
     setData({ ...defaultBusinessInput })
+    setOrigin(userInputOrigin)
     setErrors({})
     setTouched(new Set())
     localStorage.removeItem(STORAGE_KEY)
@@ -106,6 +119,7 @@ export function useBusinessForm() {
 
   return {
     data,
+    origin,
     errors,
     touched,
     updateField,

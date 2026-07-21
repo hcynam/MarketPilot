@@ -1,42 +1,43 @@
+import type { BaselineDigest } from '../../src/ai/baselineDigest'
+import type { CompactBusinessBrief } from '../../src/ai/buildBusinessBrief'
 import {
   buildClarifyingQuestionsPrompt,
-  buildFinalMarketingPlanPrompt,
+  buildStrategyPatchPrompt,
+  type PromptParts,
 } from './_shared/promptBuilders'
+import {
+  REQUEST_BUDGETS,
+  preflightProviderRequest,
+  safePreflightLog,
+  type ProviderName,
+  type ProviderRequestMode,
+} from './_shared/requestPreflight'
 import {
   safeParseJson,
   validateClarifyingQuestionsResponse,
-  validateFinalMarketingPlanResponse,
+  validateStrategyPatch,
 } from './_shared/validateAIResponse'
-import { normalizeQuestionsResponse } from './_shared/normalizeAIResponse'
-import {
-  baselineToFinalResponse,
-  assessEnhancementPatch,
-  buildBaselineDigest,
-  evaluateHybridQuality,
-  mergeBaselineWithAIPatch,
-  prepareEnhancementPatch,
-  type AIEnhancementPatch,
-  type BaselineMarketingPlan,
-  type PatchParseStage,
-} from './_shared/hybridPlan'
+import { isStrictGroqModel, strategyPatchJsonSchema } from './_shared/strategyPatchJsonSchema'
+import type {
+  ProviderAttemptDiagnostic,
+  ProviderRequestFormat,
+  ProviderResponseDiagnostic,
+  RequestPreflightDiagnostic,
+} from './_shared/marketingSchemas'
 
-declare const process: {
-  env: Record<string, string | undefined>
-}
-declare const Buffer: {
-  from(value: string, encoding: 'base64'): { toString(encoding: 'utf8'): string }
-} | undefined
+declare const process: { env: Record<string, string | undefined> }
+declare const Buffer: { from(value: string, encoding: 'base64'): { toString(encoding: 'utf8'): string } } | undefined
 
 type MarketingAiMode = 'questions' | 'plan'
-type GroqAttempt = 'json_mode' | 'raw_json_retry'
 
 interface MarketingAiPayload {
   mode?: unknown
-  businessInput?: unknown
+  businessBrief?: unknown
+  baselineDigest?: unknown
   clarifyingAnswers?: unknown
-  assumptions?: unknown
-  baselinePlan?: unknown
   contextNotes?: unknown
+  baselinePlan?: unknown
+  businessInput?: unknown
 }
 
 interface FunctionEvent {
@@ -45,880 +46,565 @@ interface FunctionEvent {
   isBase64Encoded?: boolean
 }
 
-const groqEndpoint = 'https://api.groq.com/openai/v1/chat/completions'
-const defaultModel = 'qwen/qwen3-32b'
-const defaultProviderTimeoutMs = 18000
-const maxRequestBodyChars = 40000
-const maxPromptChars = 30000
-const maxProviderErrorMessageChars = 300
-
-interface GroqProviderDiagnostic {
-  provider: 'groq'
-  providerStatus: number
-  providerStatusText: string
-  providerErrorCode?: string
-  providerErrorMessage?: string
-  modelUsed: string
-  mode: MarketingAiMode
-  attempt: GroqAttempt
+interface ProviderConfig {
+  name: ProviderName
+  model: string
+  apiKey?: string
 }
 
-class GroqProviderError extends Error {
-  diagnostic: GroqProviderDiagnostic
-  errorCode?: string
+interface ProviderCallResult {
+  json: unknown
+  httpStatus: number
+  attemptDiagnostic: ProviderAttemptDiagnostic
+}
 
-  constructor(diagnostic: GroqProviderDiagnostic, errorCode?: string) {
-    super('GROQ_PROVIDER_ERROR')
-    this.diagnostic = diagnostic
-    this.errorCode = errorCode
+interface ExtractedProviderResponse {
+  text: string
+  finishReason?: string
+  reasoningChars: number
+}
+
+interface SafeProviderErrorMetadata {
+  httpStatus: number
+  providerCode?: string
+  providerType?: string
+  sanitizedMessage?: string
+  requestId?: string
+  modelUnavailable: boolean
+}
+
+class ProviderRequestError extends Error {
+  constructor(
+    readonly code: string,
+    readonly status: number,
+    message: string,
+    readonly retryable: boolean,
+    readonly metadata?: SafeProviderErrorMetadata,
+    public attemptDiagnostic?: ProviderAttemptDiagnostic,
+  ) {
+    super(message)
   }
 }
+
+const maxRequestBodyChars = 18000
 
 export async function handler(event: FunctionEvent) {
-  if (event.httpMethod !== 'POST') {
-    return jsonResponse(405, {
-      ok: false,
-      mode: 'unknown',
-      errorCode: 'METHOD_NOT_ALLOWED',
-      errorMessage: 'Only POST requests are supported.',
-    })
-  }
-
-  if (event.body && event.body.length > maxRequestBodyChars) {
-    return jsonResponse(413, {
-      ok: false,
-      mode: 'unknown',
-      errorCode: 'REQUEST_TOO_LARGE',
-      errorMessage: 'Input is too large for one AI request.',
-    })
-  }
+  if (event.httpMethod !== 'POST') return errorResponse(405, 'unknown', 'METHOD_NOT_ALLOWED', 'Only POST requests are supported.')
+  if (event.body && event.body.length > maxRequestBodyChars) return errorResponse(413, 'unknown', 'REQUEST_TOO_LARGE', 'Request body exceeded the local safety limit.')
 
   const parsed = parseRequestBody(event)
-  if (!parsed.ok) {
-    return jsonResponse(400, {
-      ok: false,
-      mode: 'unknown',
-      errorCode: parsed.errorCode,
-      errorMessage: parsed.errorMessage,
-    })
-  }
-
+  if (!parsed.ok) return errorResponse(400, 'unknown', parsed.errorCode, parsed.errorMessage)
   const payload = parsed.payload
-  if (payload.mode !== 'questions' && payload.mode !== 'plan') {
-    return jsonResponse(400, {
-      ok: false,
-      mode: 'unknown',
-      errorCode: 'INVALID_MODE',
-      errorMessage: 'Request mode must be "questions" or "plan".',
+  if (payload.mode !== 'questions' && payload.mode !== 'plan') return errorResponse(400, 'unknown', 'INVALID_MODE', 'Request mode must be questions or plan.')
+  if (!isRecord(payload.businessBrief)) return errorResponse(400, payload.mode, 'MISSING_COMPACT_BRIEF', 'A compact business brief is required.')
+  if ('baselinePlan' in payload || 'businessInput' in payload) return errorResponse(400, payload.mode, 'NON_COMPACT_PAYLOAD_REJECTED', 'Raw form data and complete plans are not accepted.')
+  if (payload.mode === 'plan' && !isRecord(payload.baselineDigest)) return errorResponse(400, payload.mode, 'MISSING_BASELINE_DIGEST', 'A compact baseline digest is required.')
+
+  const config = resolveProviderConfig()
+  const mode: ProviderRequestMode = payload.mode === 'questions' ? 'clarification' : 'strategy_patch'
+  const businessBrief = compactRecord(payload.businessBrief) as CompactBusinessBrief
+  const baselineDigest = compactRecord(payload.baselineDigest) as BaselineDigest
+  const clarifyingAnswers = compactRecord(payload.clarifyingAnswers)
+  const contextNotes = readOptionalStringArray(payload.contextNotes)
+
+  let prompt = buildPrompt(payload.mode, businessBrief, baselineDigest, clarifyingAnswers, contextNotes)
+  let diagnostic = preflightProviderRequest({ mode, provider: config.name, selectedModel: config.model, prompt })
+  if (diagnostic.blockedLocally && contextNotes?.length) {
+    prompt = buildPrompt(payload.mode, businessBrief, baselineDigest, clarifyingAnswers, undefined)
+    diagnostic = preflightProviderRequest({
+      mode,
+      provider: config.name,
+      selectedModel: config.model,
+      prompt,
+      compressionApplied: true,
+      optionalContextRemoved: true,
     })
   }
-
-  if (!isRecord(payload.businessInput)) {
-    return jsonResponse(400, {
+  safePreflightLog(diagnostic)
+  if (diagnostic.blockedLocally) {
+    return jsonResponse(413, {
       ok: false,
       mode: payload.mode,
-      errorCode: 'MISSING_BUSINESS_INPUT',
-      errorMessage: 'businessInput must be provided as an object.',
+      errorCode: 'LOCAL_REQUEST_BUDGET_EXCEEDED',
+      errorMessage: 'The request was blocked locally before contacting the AI provider.',
+      diagnostic,
     })
   }
-
-  if (!process.env.GROQ_API_KEY) {
-    return jsonResponse(500, {
-      ok: false,
-      mode: payload.mode,
-      errorCode: 'MISSING_GROQ_API_KEY',
-      errorMessage: 'AI service is not configured on the server.',
-    })
-  }
-
-  if (payload.mode === 'questions') {
-    return handleQuestionsMode(payload)
-  }
-
-  return handlePlanMode(payload)
-}
-
-function jsonResponse(statusCode: number, payload: unknown) {
-  return {
-    statusCode,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
-    },
-    body: JSON.stringify(payload),
-  }
-}
-
-function parseRequestBody(event: FunctionEvent):
-  | { ok: true; payload: MarketingAiPayload }
-  | { ok: false; errorCode: string; errorMessage: string } {
-  if (!event.body) {
-    return {
-      ok: false,
-      errorCode: 'MISSING_BODY',
-      errorMessage: 'Request body is required.',
-    }
-  }
+  if (!config.apiKey) return errorResponse(503, payload.mode, 'AI_AUTH_NOT_CONFIGURED', 'AI service is not configured on the server.', diagnostic)
 
   try {
-    const bodyText = event.isBase64Encoded
-      ? decodeBase64(event.body)
-      : event.body
-    const payload = JSON.parse(bodyText)
+    const providerResult = await callProviderWithAttemptPolicy(config, mode, prompt)
+    const attemptDiagnostic: RequestPreflightDiagnostic = { ...diagnostic, ...providerResult.attemptDiagnostic }
+    const extracted = extractProviderResponse(config.name, providerResult.json)
+    const baseResponseDiagnostic: ProviderResponseDiagnostic = {
+      providerHttpStatus: providerResult.httpStatus,
+      providerFinishReason: extracted.finishReason,
+      providerContentChars: extracted.text.length,
+      providerReasoningChars: extracted.reasoningChars,
+      parsedJson: false,
+      rawTopLevelKeys: [],
+      normalizedTopLevelKeys: [],
+      recognizedPatchAreas: [],
+      unknownTopLevelKeys: [],
+      acceptedPatchAreas: [],
+      rejectedPatchAreas: [],
+    }
+    if (!extracted.text) {
+      safeProviderResponseLog(baseResponseDiagnostic)
+      return errorResponse(502, payload.mode, 'AI_EMPTY_RESPONSE', 'AI service returned an empty response.', attemptDiagnostic, undefined, baseResponseDiagnostic)
+    }
+    const json = safeParseJson(extracted.text)
+    if (!json.ok) {
+      safeProviderResponseLog(baseResponseDiagnostic)
+      return errorResponse(200, payload.mode, 'AI_MALFORMED_JSON', 'AI response was not valid JSON.', attemptDiagnostic, json.errors, baseResponseDiagnostic)
+    }
 
-    if (!isRecord(payload)) {
-      return {
-        ok: false,
-        errorCode: 'INVALID_JSON_BODY',
-        errorMessage: 'Request body must be a JSON object.',
+    if (payload.mode === 'questions') {
+      const validation = validateClarifyingQuestionsResponse(json.data)
+      const questionDiagnostic = {
+        ...baseResponseDiagnostic,
+        parsedJson: true,
+        rawTopLevelKeys: isRecord(json.data) ? Object.keys(json.data).sort() : [],
+        normalizedTopLevelKeys: isRecord(json.data) ? Object.keys(json.data).sort() : [],
       }
+      safeProviderResponseLog(questionDiagnostic)
+      if (!validation.ok) return errorResponse(200, payload.mode, 'AI_SCHEMA_MISMATCH', 'Clarification response did not match the required contract.', attemptDiagnostic, validation.errors, questionDiagnostic)
+      return jsonResponse(200, { ok: true, mode: payload.mode, data: json.data, diagnostic: attemptDiagnostic, providerDiagnostic: questionDiagnostic })
     }
 
-    return { ok: true, payload }
-  } catch {
-    return {
-      ok: false,
-      errorCode: 'INVALID_JSON_BODY',
-      errorMessage: 'Request body must be valid JSON.',
+    const validation = validateStrategyPatch(json.data)
+    const providerDiagnostic: ProviderResponseDiagnostic = {
+      ...baseResponseDiagnostic,
+      parsedJson: true,
+      rawTopLevelKeys: validation.normalization.rawTopLevelKeys,
+      unwrappedFrom: validation.normalization.unwrappedFrom,
+      normalizedTopLevelKeys: validation.normalization.normalizedTopLevelKeys,
+      recognizedPatchAreas: validation.normalization.recognizedPatchAreas,
+      unknownTopLevelKeys: validation.normalization.unknownTopLevelKeys,
+      acceptedPatchAreas: validation.acceptedPatchAreas,
+      rejectedPatchAreas: validation.rejectedPatchAreas,
     }
-  }
-}
-
-async function handleQuestionsMode(payload: MarketingAiPayload) {
-  const prompt = buildClarifyingQuestionsPrompt({
-    businessInput: payload.businessInput as Record<string, unknown>,
-    contextNotes: readOptionalStringArray(payload.contextNotes),
-  })
-
-  const result = await generateAndValidate({
-    mode: 'questions',
-    prompt,
-    businessInput: payload.businessInput as Record<string, unknown>,
-    validate: validateClarifyingQuestionsResponse,
-  })
-
-  return jsonResponse(result.statusCode, result.payload)
-}
-
-async function handlePlanMode(payload: MarketingAiPayload) {
-  if (!isBaselineMarketingPlan(payload.baselinePlan)) {
-    return jsonResponse(400, {
-      ok: false, mode: 'plan', errorCode: 'MISSING_BASELINE_PLAN',
-      errorMessage: 'A valid deterministic baselinePlan is required for plan mode.',
-    })
-  }
-
-  const businessInput = payload.businessInput as Record<string, unknown>
-  const clarifyingAnswers = isRecord(payload.clarifyingAnswers) ? payload.clarifyingAnswers : {}
-  const baselinePlan = payload.baselinePlan
-  const baselineDigest = buildBaselineDigest(businessInput, baselinePlan, clarifyingAnswers)
-  const hasClarifyingAnswers = Object.keys(clarifyingAnswers).length > 0
-  let validationIssues: string[] = []
-  let qualityIssues: string[] = []
-  let invalidPatch: unknown
-  let acceptedPatchAreas: string[] = []
-  let patchQualityScore = 0
-  let parseStage: PatchParseStage = 'provider_response'
-  let rawTopLevelKeys: string[] = []
-  let patchTopLevelKeys: string[] = []
-  let patchType = 'unknown'
-  let rawPreview: string | undefined
-  let modelUsed = normalizeGroqModel(process.env.GROQ_MODEL)
-
-  for (let qualityAttempt = 0; qualityAttempt < 2; qualityAttempt += 1) {
-    const attemptedRepair = qualityAttempt === 1
-    const prompt = buildFinalMarketingPlanPrompt({
-      businessInput,
-      clarifyingAnswers,
-      baselineDigest,
-      repairIssues: attemptedRepair ? [...validationIssues, ...qualityIssues].slice(0, 20) : undefined,
-      invalidPatch: attemptedRepair ? invalidPatch : undefined,
-      contextNotes: readOptionalStringArray(payload.contextNotes),
-    })
-    const result = await generateAndValidate({
-      mode: 'plan', prompt, businessInput,
-      normalize: (value) => value,
-      validate: () => ({ ok: true, errors: [] }),
-    })
-    const success = readSuccessfulData(result.payload)
-    if (!success) {
-      modelUsed = readModelUsed(result.payload) || modelUsed
-      validationIssues = ensureIssues(readDiagnosticIssues(result.payload), 'Groq patch response could not be parsed or validated.')
-      parseStage = readPayloadParseStage(result.payload)
-      return hybridFallbackResponse(baselinePlan, businessInput, {
-        errorCode: normalizeProviderFailureCode(readErrorCode(result.payload)),
-        validationIssues, qualityIssues, parseStage, rawTopLevelKeys, patchTopLevelKeys,
-        patchType, hasClarifyingAnswers, attemptedRepair, acceptedPatchAreas, patchQualityScore,
-        modelUsed, rawPreview, hasBaselineDigest: true, ...readProviderDetails(result.payload),
-      })
+    safeProviderResponseLog(providerDiagnostic)
+    if (!validation.usablePatch) {
+      return errorResponse(200, payload.mode, 'AI_PATCH_REJECTED', 'No usable strategy patch area was returned.', attemptDiagnostic, validation.rejectedPatchAreas.map((item) => `${item.area}: ${item.reason}`), providerDiagnostic)
     }
-
-    modelUsed = success.modelUsed || modelUsed
-    const prepared = prepareEnhancementPatch(success.data)
-    parseStage = prepared.parseStage
-    rawTopLevelKeys = prepared.rawTopLevelKeys
-    patchTopLevelKeys = prepared.patchTopLevelKeys
-    patchType = prepared.patchType
-    rawPreview = prepared.rawPreview
-    invalidPatch = prepared.patch ?? success.data
-    if (!prepared.patch) {
-      validationIssues = ensureIssues(prepared.validationIssues, 'AI patch object is empty after parsing/unwrapping')
-      qualityIssues = []
-      if (!attemptedRepair) continue
-      return hybridFallbackResponse(baselinePlan, businessInput, {
-        errorCode: validationIssues.some((issue) => issue.includes('empty after parsing')) ? 'AI_PATCH_EMPTY' : 'AI_PATCH_VALIDATION_FAILED',
-        validationIssues, qualityIssues, parseStage, rawTopLevelKeys, patchTopLevelKeys,
-        patchType, hasClarifyingAnswers, attemptedRepair, acceptedPatchAreas, patchQualityScore,
-        modelUsed, rawPreview, hasBaselineDigest: true,
-      })
-    }
-
-    const patch = prepared.patch
-    const assessment = assessEnhancementPatch(patch)
-    acceptedPatchAreas = assessment.acceptedPatchAreas
-    patchQualityScore = assessment.patchQualityScore
-    validationIssues = [...new Set([...prepared.validationIssues, ...assessment.validationIssues])].slice(0, 20)
-    if (!assessment.usable) {
-      qualityIssues = ensureIssues([
-        `Patch has ${acceptedPatchAreas.length} usable strategic areas; at least 3 are required.`,
-      ], 'Patch did not meet partial enhancement quality.')
-      parseStage = 'patch_validation'
-      if (!attemptedRepair) continue
-      return hybridFallbackResponse(baselinePlan, businessInput, {
-        errorCode: 'AI_PATCH_REJECTED',
-        validationIssues, qualityIssues, parseStage, rawTopLevelKeys, patchTopLevelKeys,
-        patchType, hasClarifyingAnswers, attemptedRepair, acceptedPatchAreas, patchQualityScore,
-        modelUsed, rawPreview, hasBaselineDigest: true,
-      })
-    }
-
-    const finalPlan = mergeBaselineWithAIPatch(baselinePlan, patch, businessInput, clarifyingAnswers, acceptedPatchAreas)
-    qualityIssues = evaluateHybridQuality(finalPlan, patch, businessInput, acceptedPatchAreas, clarifyingAnswers)
-    const finalValidation = validateFinalMarketingPlanResponse(finalPlan)
-    qualityIssues.push(...finalValidation.errors.map((issue) => `Final contract: ${issue}`))
-    qualityIssues = [...new Set(qualityIssues)].slice(0, 20)
-    if (qualityIssues.length === 0) {
-      const planSource = acceptedPatchAreas.length >= 5 ? 'ai-enhanced' : 'ai-partially-enhanced'
-      return jsonResponse(200, {
-        ok: true, mode: 'plan', data: finalPlan, planSource,
-        provider: 'groq', modelUsed, qualityIssues: [], validationIssues,
-        acceptedPatchAreas, patchQualityScore, parseStage: 'merge_quality',
-        rawTopLevelKeys, patchTopLevelKeys, patchType, hasBaselinePlan: true,
-        hasBaselineDigest: true, hasClarifyingAnswers, attemptedRepair,
-      })
-    }
-
-    parseStage = 'merge_quality'
-    console.error('AI patch quality diagnostic', {
-      errorCode: 'AI_PATCH_QUALITY_FAILED', provider: 'groq', modelUsed,
-      mode: 'plan', validationIssues: validationIssues.slice(0, 10), qualityIssues: qualityIssues.slice(0, 10),
-      rawTopLevelKeys, patchTopLevelKeys, patchType, acceptedPatchAreas,
-      hasBaselinePlan: true, hasClarifyingAnswers, attemptedRepair,
-      planSource: 'internal-fallback',
-    })
-    if (!attemptedRepair) continue
-  }
-
-  return hybridFallbackResponse(baselinePlan, businessInput, {
-    errorCode: 'AI_PATCH_QUALITY_FAILED',
-    validationIssues, qualityIssues, parseStage, rawTopLevelKeys, patchTopLevelKeys,
-    patchType, hasClarifyingAnswers, attemptedRepair: true, acceptedPatchAreas,
-    patchQualityScore, modelUsed, rawPreview, hasBaselineDigest: true,
-  })
-}
-
-async function generateAndValidate(args: {
-  mode: MarketingAiMode
-  prompt: string
-  businessInput: Record<string, unknown>
-  validate: (data: unknown) => { ok: boolean; errors: string[] }
-  normalize?: (data: unknown) => unknown
-  validationStage?: string
-}): Promise<{ statusCode: number; payload: unknown }> {
-  if (args.prompt.length > maxPromptChars) {
-    return {
-      statusCode: 413,
-      payload: {
-        ok: false,
-        mode: args.mode,
-        errorCode: 'PROMPT_TOO_LARGE',
-        errorMessage: 'The prepared AI prompt is too large. Please shorten the business input.',
-      },
-    }
-  }
-
-  let groqResult: GroqCallResult
-
-  try {
-    groqResult = await callGroq(args.prompt, args.mode)
-  } catch (error) {
-    if (isGroqTimeoutError(error)) {
-      const diagnosticPayload = {
-        ok: false,
-        mode: args.mode,
-        errorCode: 'GROQ_TIMEOUT',
-        errorMessage: 'AI service timed out. Please try again later.',
-        ...buildLocalProviderDiagnostic(args.mode, 'Timeout'),
-      }
-
-      console.error('Groq provider diagnostic', diagnosticPayload)
-
-      return {
-        statusCode: 504,
-        payload: diagnosticPayload,
-      }
-    }
-
-    if (isGroqProviderError(error)) {
-      const errorCode = error.errorCode || providerErrorCodeForStatus(error.diagnostic.providerStatus)
-      const diagnosticPayload = {
-        ok: false,
-        mode: args.mode,
-        errorCode,
-        errorMessage: 'AI service did not return a usable response. Please try again later.',
-        ...error.diagnostic,
-      }
-
-      console.error('Groq provider diagnostic', diagnosticPayload)
-
-      return {
-        statusCode: error.diagnostic.providerStatus === 429 ? 429 : 502,
-        payload: diagnosticPayload,
-      }
-    }
-
-    const diagnosticPayload = {
-      ok: false,
-      mode: args.mode,
-      errorCode: 'GROQ_REQUEST_FAILED',
-      errorMessage: 'AI service did not return a usable response. Please try again later.',
-      ...buildLocalProviderDiagnostic(args.mode, 'Network or runtime error'),
-    }
-
-    console.error('Groq provider diagnostic', diagnosticPayload)
-
-    return {
-      statusCode: 502,
-      payload: diagnosticPayload,
-    }
-  }
-
-  let text: string
-  try {
-    text = extractGroqText(groqResult.responseJson)
-  } catch {
-    const diagnosticPayload = {
-      ok: false,
-      mode: args.mode,
-      errorCode: 'GROQ_EMPTY_RESPONSE',
-      errorMessage: 'Groq returned no usable message content.',
-      parseStage: 'provider_response',
-      ...groqResult.diagnostic,
-    }
-    console.error('Groq provider diagnostic', diagnosticPayload)
-    return {
-      statusCode: 502,
-      payload: diagnosticPayload,
-    }
-  }
-
-  const parsed = safeParseJson(text)
-  if (!parsed.ok) {
-    if (groqResult.attempt === 'raw_json_retry') {
-      const diagnosticPayload = {
-        ok: false,
-        mode: args.mode,
-        errorCode: 'GROQ_JSON_GENERATION_FAILED',
-        errorMessage: 'Groq could not generate valid JSON after retrying.',
-        ...groqResult.diagnostic,
-        providerErrorCode: 'json_parse_failed',
-        providerErrorMessage: 'Raw JSON retry did not contain a valid JSON object.',
-      }
-      console.error('Groq provider diagnostic', diagnosticPayload)
-      return { statusCode: 502, payload: diagnosticPayload }
-    }
-
-    return {
-      statusCode: 200,
-      payload: {
-        ok: false,
-        mode: args.mode,
-        errorCode: 'GROQ_JSON_PARSE_FAILED',
-        errorMessage: 'AI response was not valid JSON.',
-        validationErrors: parsed.errors,
-        parseStage: 'json_parse',
-        ...groqResult.diagnostic,
-      },
-    }
-  }
-
-  const normalized = args.normalize
-    ? args.normalize(parsed.data)
-    : normalizeQuestionsResponse(parsed.data)
-  const validation = args.validate(normalized)
-  if (!validation.ok) {
-    const validationStage = args.validationStage || (args.mode === 'questions' ? 'questions' : 'plan')
-    const validationIssues = validation.errors.slice(0, 10)
-    const receivedTopLevelKeys = isRecord(normalized) ? Object.keys(normalized).slice(0, 20) : []
-    const diagnosticPayload = {
-      ok: false,
-      mode: args.mode,
-      errorCode: 'AI_VALIDATION_FAILED',
-      errorMessage: 'AI response did not match the required planning contract after normalization.',
-      validationStage,
-      validationIssues,
-      receivedTopLevelKeys,
-      patchTopLevelKeys: args.validationStage === 'plan-patch' ? receivedTopLevelKeys : undefined,
-      qualityIssues: [],
-      planSource: args.validationStage === 'plan-patch' ? 'internal-fallback' : undefined,
-      modelUsed: groqResult.diagnostic.modelUsed,
-      provider: 'groq',
-    }
-    console.error('AI validation diagnostic', diagnosticPayload)
-    return {
-      statusCode: 200,
-      payload: diagnosticPayload,
-    }
-  }
-
-  return {
-    statusCode: 200,
-    payload: {
+    const successfulDiagnostic = markStructuredFallbackSucceeded(attemptDiagnostic)
+    return jsonResponse(200, {
       ok: true,
-      mode: args.mode,
-      data: normalized,
-      modelUsed: groqResult.diagnostic.modelUsed,
-    },
-  }
-}
-
-interface GroqCallResult {
-  responseJson: unknown
-  attempt: GroqAttempt
-  diagnostic: GroqProviderDiagnostic
-}
-
-async function callGroq(prompt: string, mode: MarketingAiMode): Promise<GroqCallResult> {
-  const apiKey = process.env.GROQ_API_KEY
-  if (!apiKey) {
-    throw new Error('Missing Groq API key')
-  }
-
-  const model = normalizeGroqModel(process.env.GROQ_MODEL)
-  const configuredTimeoutMs = Number(process.env.AI_PROVIDER_TIMEOUT_MS || defaultProviderTimeoutMs)
-  const providerTimeoutMs = Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
-    ? configuredTimeoutMs
-    : defaultProviderTimeoutMs
-  const jsonModeResponse = await sendGroqRequest({
-    apiKey,
-    model,
-    mode,
-    prompt,
-    providerTimeoutMs,
-    attempt: 'json_mode',
-    useResponseFormat: true,
-  })
-
-  if (jsonModeResponse.ok) {
-    return buildSuccessfulGroqResult(jsonModeResponse, model, mode, 'json_mode')
-  }
-
-  const jsonModeDiagnostic = await buildProviderDiagnostic(jsonModeResponse, model, mode, 'json_mode')
-  if (jsonModeDiagnostic.providerStatus !== 400 || jsonModeDiagnostic.providerErrorCode !== 'json_validate_failed') {
-    throw new GroqProviderError(jsonModeDiagnostic)
-  }
-
-  console.error('Groq provider diagnostic', {
-    errorCode: 'GROQ_JSON_GENERATION_RETRY',
-    ...jsonModeDiagnostic,
-  })
-
-  const rawJsonResponse = await sendGroqRequest({
-    apiKey,
-    model,
-    mode,
-    prompt,
-    providerTimeoutMs,
-    attempt: 'raw_json_retry',
-    useResponseFormat: false,
-  })
-
-  if (!rawJsonResponse.ok) {
-    const diagnostic = await buildProviderDiagnostic(rawJsonResponse, model, mode, 'raw_json_retry')
-    throw new GroqProviderError(diagnostic, 'GROQ_JSON_GENERATION_FAILED')
-  }
-
-  return buildSuccessfulGroqResult(rawJsonResponse, model, mode, 'raw_json_retry')
-}
-
-async function sendGroqRequest(args: {
-  apiKey: string
-  model: string
-  mode: MarketingAiMode
-  prompt: string
-  providerTimeoutMs: number
-  attempt: GroqAttempt
-  useResponseFormat: boolean
-}): Promise<Response> {
-  const responseWithReasoningEffort = await executeGroqFetch(args, true)
-  if (responseWithReasoningEffort.ok) return responseWithReasoningEffort
-
-  const diagnostic = await buildProviderDiagnostic(
-    responseWithReasoningEffort.clone(),
-    args.model,
-    args.mode,
-    args.attempt,
-  )
-  if (!isReasoningEffortRejected(diagnostic)) return responseWithReasoningEffort
-
-  return executeGroqFetch(args, false)
-}
-
-async function executeGroqFetch(
-  args: {
-    apiKey: string
-    model: string
-    mode: MarketingAiMode
-    prompt: string
-    providerTimeoutMs: number
-    attempt: GroqAttempt
-    useResponseFormat: boolean
-  },
-  includeReasoningEffort: boolean,
-): Promise<Response> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), args.providerTimeoutMs)
-  const strictSystemMessage = args.attempt === 'raw_json_retry'
-    ? 'Return ONLY one valid JSON object. No markdown. No explanation. No code fences. The first character must be { and the last character must be }.'
-    : 'You are MarketPilot AI, a Persian-first expert marketing planning assistant. Return valid JSON only. Do not use markdown.'
-
-  const requestBody: Record<string, unknown> = {
-    model: args.model,
-    messages: [
-      { role: 'system', content: strictSystemMessage },
-      { role: 'user', content: args.prompt },
-    ],
-    temperature: args.mode === 'questions' ? 0.15 : 0.2,
-    max_completion_tokens: args.mode === 'questions' ? 900 : 3000,
-    reasoning_format: 'hidden',
-  }
-  if (includeReasoningEffort) requestBody.reasoning_effort = 'none'
-  if (args.useResponseFormat) requestBody.response_format = { type: 'json_object' }
-
-  try {
-    return await fetch(groqEndpoint, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${args.apiKey}`,
+      mode: payload.mode,
+      data: {
+        patch: validation.patch,
+        diagnostic: {
+          acceptedPatchAreas: validation.acceptedPatchAreas,
+          rejectedPatchAreas: validation.rejectedPatchAreas,
+          usablePatch: true,
+        },
       },
-      body: JSON.stringify(requestBody),
+      diagnostic: successfulDiagnostic,
+      providerDiagnostic,
     })
   } catch (error) {
-    if (isAbortError(error)) {
-      throw new Error('GROQ_TIMEOUT')
+    const classified = classifyProviderError(error)
+    const attemptDiagnostic = error instanceof ProviderRequestError && error.attemptDiagnostic
+      ? { ...diagnostic, ...error.attemptDiagnostic }
+      : diagnostic
+    return errorResponse(classified.httpStatus, payload.mode, classified.code, classified.message, attemptDiagnostic)
+  }
+}
+
+function buildPrompt(
+  mode: MarketingAiMode,
+  businessBrief: CompactBusinessBrief,
+  baselineDigest: BaselineDigest,
+  clarifyingAnswers: Record<string, unknown>,
+  contextNotes: string[] | undefined,
+): PromptParts {
+  return mode === 'questions'
+    ? buildClarifyingQuestionsPrompt({ businessBrief, contextNotes })
+    : buildStrategyPatchPrompt({ businessBrief, baselineDigest, clarifyingAnswers, contextNotes })
+}
+
+async function callProviderWithAttemptPolicy(
+  config: ProviderConfig,
+  mode: ProviderRequestMode,
+  prompt: PromptParts,
+): Promise<ProviderCallResult> {
+  const primaryFormat = requestFormatFor(config, mode)
+  try {
+    const result = await callProviderOnce(config, mode, prompt, primaryFormat)
+    return {
+      ...result,
+      attemptDiagnostic: successfulAttemptDiagnostic(primaryFormat, result.httpStatus),
+    }
+  } catch (error) {
+    if (!(error instanceof ProviderRequestError)) throw error
+    safeProviderRequestErrorLog(error)
+
+    if (shouldUseStructuredFallback(config, mode, primaryFormat, error)) {
+      const fallbackFormat: ProviderRequestFormat = 'json_object_fallback'
+      try {
+        const result = await callProviderOnce(config, mode, prompt, fallbackFormat)
+        return {
+          ...result,
+          attemptDiagnostic: {
+            ...providerErrorAttemptDiagnostic(error, fallbackFormat),
+            structuredFallbackAttempted: true,
+            structuredFallbackSucceeded: false,
+          },
+        }
+      } catch (fallbackError) {
+        if (!(fallbackError instanceof ProviderRequestError)) throw fallbackError
+        safeProviderRequestErrorLog(fallbackError)
+        fallbackError.attemptDiagnostic = {
+          ...providerErrorAttemptDiagnostic(fallbackError, fallbackFormat),
+          structuredFallbackAttempted: true,
+          structuredFallbackSucceeded: false,
+        }
+        throw fallbackError
+      }
     }
 
-    throw error
+    if (!error.retryable) {
+      error.attemptDiagnostic = providerErrorAttemptDiagnostic(error, primaryFormat)
+      throw error
+    }
+
+    await delay(300)
+    try {
+      const result = await callProviderOnce(config, mode, prompt, primaryFormat)
+      return {
+        ...result,
+        attemptDiagnostic: successfulAttemptDiagnostic(primaryFormat, result.httpStatus),
+      }
+    } catch (retryError) {
+      if (!(retryError instanceof ProviderRequestError)) throw retryError
+      safeProviderRequestErrorLog(retryError)
+      retryError.attemptDiagnostic = providerErrorAttemptDiagnostic(retryError, primaryFormat)
+      throw retryError
+    }
+  }
+}
+
+async function callProviderOnce(
+  config: ProviderConfig,
+  mode: ProviderRequestMode,
+  prompt: PromptParts,
+  requestFormat: ProviderRequestFormat,
+): Promise<Omit<ProviderCallResult, 'attemptDiagnostic'>> {
+  const controller = new AbortController()
+  const timeoutMs = resolveProviderTimeoutMs()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = config.name === 'groq'
+      ? await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+        body: JSON.stringify(buildGroqRequestBody(config.model, mode, prompt, requestFormat)),
+      })
+      : await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.apiKey ?? '' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: prompt.systemPrompt }] },
+          contents: [{ parts: [{ text: prompt.userPrompt }] }],
+          generationConfig: {
+            temperature: 0.2,
+            responseMimeType: 'application/json',
+            maxOutputTokens: REQUEST_BUDGETS[mode].outputTokens,
+          },
+        }),
+      })
+
+    if (!response.ok) {
+      const metadata = await readSafeProviderError(response)
+      throw providerHttpError(response.status, metadata)
+    }
+    return { json: await response.json(), httpStatus: response.status }
+  } catch (error) {
+    if (error instanceof ProviderRequestError) throw error
+    if (error instanceof Error && error.name === 'AbortError') throw new ProviderRequestError('AI_TIMEOUT', 504, 'AI service timed out.', true)
+    throw new ProviderRequestError('AI_NETWORK_FAILURE', 502, 'AI service could not be reached.', true)
   } finally {
     clearTimeout(timeout)
   }
 }
 
-async function buildSuccessfulGroqResult(
-  response: Response,
-  model: string,
-  mode: MarketingAiMode,
-  attempt: GroqAttempt,
-): Promise<GroqCallResult> {
+function providerHttpError(status: number, metadata: SafeProviderErrorMetadata): ProviderRequestError {
+  if (status === 413) return new ProviderRequestError('AI_REQUEST_TOO_LARGE', status, 'AI provider rejected the request size.', false, metadata)
+  if (status === 429) return new ProviderRequestError('AI_RATE_LIMITED', status, 'AI provider is temporarily rate-limited.', false, metadata)
+  if (status === 401 || status === 403) return new ProviderRequestError('AI_AUTHENTICATION_FAILED', status, 'AI provider authentication failed.', false, metadata)
+  if (status >= 500) return new ProviderRequestError('AI_PROVIDER_5XX', status, 'AI provider is temporarily unavailable.', true, metadata)
+  const code = metadata.modelUnavailable ? 'AI_MODEL_UNAVAILABLE' : metadata.providerCode || 'AI_PROVIDER_REJECTED'
+  return new ProviderRequestError(code, status, 'AI provider rejected the request.', false, metadata)
+}
+
+function classifyProviderError(error: unknown): { code: string; httpStatus: number; message: string } {
+  if (error instanceof ProviderRequestError) {
+    const userMessages: Record<string, string> = {
+      AI_REQUEST_TOO_LARGE: 'درخواست پیش از دریافت پاسخ توسط سرویس رد شد؛ برنامه کامل داخلی حفظ شد.',
+      AI_RATE_LIMITED: 'سرویس هوش مصنوعی موقتاً به سقف استفاده رسیده است؛ برنامه داخلی قابل استفاده است.',
+      AI_AUTHENTICATION_FAILED: 'تنظیمات سرویس هوش مصنوعی نیازمند بررسی مدیر سامانه است.',
+      AI_TIMEOUT: 'سرویس هوش مصنوعی در زمان مقرر پاسخ نداد؛ برنامه داخلی حفظ شد.',
+      AI_NETWORK_FAILURE: 'ارتباط با سرویس هوش مصنوعی برقرار نشد؛ برنامه داخلی حفظ شد.',
+      AI_PROVIDER_5XX: 'سرویس هوش مصنوعی موقتاً در دسترس نیست؛ برنامه داخلی حفظ شد.',
+      AI_MODEL_UNAVAILABLE: 'مدل تنظیم‌شده در سرویس هوش مصنوعی در دسترس نیست؛ مدل یا مجوزهای پروژه را بررسی کنید.',
+    }
+    return {
+      code: error.code,
+      httpStatus: error.status >= 400 && error.status < 600 ? error.status : 502,
+      message: userMessages[error.code] || 'سرویس هوش مصنوعی پاسخ قابل استفاده‌ای برنگرداند؛ برنامه کامل داخلی حفظ شد.',
+    }
+  }
+  return { code: 'AI_PROVIDER_UNKNOWN_FAILURE', httpStatus: 502, message: 'سرویس هوش مصنوعی پاسخ قابل استفاده‌ای برنگرداند.' }
+}
+
+function resolveProviderConfig(): ProviderConfig {
+  const requested = process.env.AI_PROVIDER?.trim().toLowerCase()
+  const name: ProviderName = requested === 'groq' || (!requested && process.env.GROQ_API_KEY) ? 'groq' : 'gemini'
+  if (name === 'groq') {
+    return {
+      name,
+      model: normalizeModel(process.env.GROQ_MODEL || process.env.AI_MODEL || 'openai/gpt-oss-120b'),
+      apiKey: process.env.GROQ_API_KEY,
+    }
+  }
   return {
-    responseJson: await response.json(),
-    attempt,
-    diagnostic: {
-      provider: 'groq',
-      providerStatus: response.status,
-      providerStatusText: response.statusText,
-      modelUsed: model,
-      mode,
-      attempt,
-    },
+    name,
+    model: normalizeModel(process.env.GEMINI_MODEL || process.env.AI_MODEL || 'gemini-2.5-flash'),
+    apiKey: process.env.GEMINI_API_KEY,
   }
 }
 
-function extractGroqText(responseJson: unknown): string {
-  if (!isRecord(responseJson)) {
-    throw new Error('Groq response must be an object')
+export function buildGroqRequestBody(
+  model: string,
+  mode: ProviderRequestMode,
+  prompt: PromptParts,
+  requestFormat: ProviderRequestFormat = mode === 'strategy_patch' && isStrictGroqModel(model)
+    ? 'strict_json_schema'
+    : 'json_object',
+): Record<string, unknown> {
+  const strictPatch = requestFormat === 'strict_json_schema'
+  return {
+    model,
+    messages: [
+      { role: 'system', content: prompt.systemPrompt },
+      { role: 'user', content: prompt.userPrompt },
+    ],
+    temperature: 0.2,
+    max_completion_tokens: REQUEST_BUDGETS[mode].outputTokens,
+    response_format: strictPatch
+      ? {
+        type: 'json_schema',
+        json_schema: {
+          name: 'marketpilot_strategy_patch',
+          strict: true,
+          schema: strategyPatchJsonSchema,
+        },
+      }
+      : { type: 'json_object' },
+    ...(isStrictGroqModel(model) ? { reasoning_effort: 'low' } : {}),
+    ...(model.includes('qwen3') ? { reasoning_effort: 'none', reasoning_format: 'hidden' } : {}),
   }
+}
 
-  const choices = responseJson.choices
-  if (!Array.isArray(choices) || choices.length === 0) {
-    throw new Error('Groq response has no choices')
+function requestFormatFor(config: ProviderConfig, mode: ProviderRequestMode): ProviderRequestFormat {
+  return config.name === 'groq' && mode === 'strategy_patch' && isStrictGroqModel(config.model)
+    ? 'strict_json_schema'
+    : 'json_object'
+}
+
+function shouldUseStructuredFallback(
+  config: ProviderConfig,
+  mode: ProviderRequestMode,
+  requestFormat: ProviderRequestFormat,
+  error: ProviderRequestError,
+): boolean {
+  return config.name === 'groq'
+    && mode === 'strategy_patch'
+    && requestFormat === 'strict_json_schema'
+    && error.metadata?.providerCode === 'json_validate_failed'
+}
+
+function successfulAttemptDiagnostic(
+  providerRequestFormat: ProviderRequestFormat,
+  providerHttpStatus: number,
+): ProviderAttemptDiagnostic {
+  return {
+    providerRequestFormat,
+    structuredFallbackAttempted: false,
+    structuredFallbackSucceeded: false,
+    providerHttpStatus,
   }
+}
 
-  const firstChoice = choices[0]
-  if (!isRecord(firstChoice) || !isRecord(firstChoice.message)) {
-    throw new Error('Groq choice has no message')
+function providerErrorAttemptDiagnostic(
+  error: ProviderRequestError,
+  providerRequestFormat: ProviderRequestFormat,
+): ProviderAttemptDiagnostic {
+  return {
+    providerRequestFormat,
+    structuredFallbackAttempted: false,
+    structuredFallbackSucceeded: false,
+    ...(error.metadata?.httpStatus ? { providerHttpStatus: error.metadata.httpStatus } : {}),
+    ...(error.metadata?.providerCode ? { providerErrorCode: error.metadata.providerCode } : {}),
+    ...(error.metadata?.providerType ? { providerErrorType: error.metadata.providerType } : {}),
+    ...(error.metadata?.requestId ? { providerRequestId: error.metadata.requestId } : {}),
   }
+}
 
-  const text = typeof firstChoice.message.content === 'string'
-    ? firstChoice.message.content.trim()
-    : ''
+function markStructuredFallbackSucceeded(
+  diagnostic: RequestPreflightDiagnostic,
+): RequestPreflightDiagnostic {
+  return diagnostic.structuredFallbackAttempted
+    ? { ...diagnostic, structuredFallbackSucceeded: true }
+    : diagnostic
+}
 
-  if (!text) {
-    throw new Error('Groq response text is empty')
+function extractProviderResponse(provider: ProviderName, response: unknown): ExtractedProviderResponse {
+  if (!isRecord(response)) return { text: '', reasoningChars: 0 }
+  if (provider === 'groq') {
+    const choices = Array.isArray(response.choices) ? response.choices : []
+    const first = choices[0]
+    if (!isRecord(first) || !isRecord(first.message)) return { text: '', reasoningChars: 0 }
+    return {
+      text: typeof first.message.content === 'string' ? first.message.content.trim() : '',
+      finishReason: typeof first.finish_reason === 'string' ? first.finish_reason : undefined,
+      reasoningChars: safeValueLength(first.message.reasoning),
+    }
   }
+  const candidates = Array.isArray(response.candidates) ? response.candidates : []
+  const first = candidates[0]
+  if (!isRecord(first) || !isRecord(first.content) || !Array.isArray(first.content.parts)) return { text: '', reasoningChars: 0 }
+  return {
+    text: first.content.parts.map((part) => isRecord(part) && typeof part.text === 'string' ? part.text : '').join('').trim(),
+    finishReason: typeof first.finishReason === 'string' ? first.finishReason : undefined,
+    reasoningChars: 0,
+  }
+}
 
-  return text
+async function readSafeProviderError(response: Response): Promise<SafeProviderErrorMetadata> {
+  const requestId = readSafeRequestId(response.headers)
+  try {
+    const body = await response.json()
+    if (!isRecord(body) || !isRecord(body.error)) {
+      return { httpStatus: response.status, requestId, modelUnavailable: false }
+    }
+    const rawMessage = typeof body.error.message === 'string' ? body.error.message : ''
+    const providerCode = safeProviderIdentifier(body.error.code)
+    return {
+      httpStatus: response.status,
+      providerCode,
+      providerType: safeProviderIdentifier(body.error.type),
+      sanitizedMessage: sanitizeProviderMessage(rawMessage, providerCode),
+      requestId,
+      modelUnavailable: /model/i.test(rawMessage) && /unavailable|not found|does not exist|deprecat|decommission|blocked/i.test(rawMessage),
+    }
+  } catch {
+    return { httpStatus: response.status, requestId, modelUnavailable: false }
+  }
+}
+
+function safeProviderIdentifier(value: unknown): string | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined
+  const normalized = String(value).trim()
+  return /^[a-z0-9_.-]{1,80}$/i.test(normalized) ? normalized : undefined
+}
+
+function sanitizeProviderMessage(value: string, providerCode: string | undefined): string | undefined {
+  const normalized = value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!normalized) return undefined
+  if (providerCode === 'json_validate_failed') return 'Provider could not satisfy the requested JSON schema.'
+  if (/rate.?limit|too many requests/i.test(normalized)) return 'Provider rate limit was reached.'
+  if (/model/i.test(normalized) && /unavailable|not found|does not exist|deprecat|decommission|blocked/i.test(normalized)) {
+    return 'Configured provider model is unavailable.'
+  }
+  if (/authentication|unauthorized|forbidden|invalid api key/i.test(normalized)) return 'Provider authentication was rejected.'
+  return 'Provider returned an error; unstructured detail was omitted.'
+}
+
+function readSafeRequestId(headers: Headers): string | undefined {
+  for (const name of ['x-request-id', 'request-id', 'cf-ray']) {
+    const value = headers.get(name)?.trim()
+    if (value && /^[a-z0-9_.:-]{1,120}$/i.test(value)) return value
+  }
+  return undefined
+}
+
+function compactRecord(value: unknown, depth = 0): Record<string, unknown> {
+  if (!isRecord(value) || depth > 3) return {}
+  const result: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (['rawInput', 'baselinePlan', 'businessInput'].includes(key) || item === undefined || item === null || item === '') continue
+    if (typeof item === 'string') result[key] = compactString(item, depth === 0 ? 900 : 600)
+    else if (typeof item === 'number' || typeof item === 'boolean') result[key] = item
+    else if (Array.isArray(item)) {
+      const compacted = item.slice(0, 12).map((entry) => typeof entry === 'string' ? compactString(entry, 400) : isRecord(entry) ? compactRecord(entry, depth + 1) : entry).filter((entry) => entry !== '')
+      if (compacted.length) result[key] = [...new Map(compacted.map((entry) => [JSON.stringify(entry), entry])).values()]
+    } else if (isRecord(item)) {
+      const nested = compactRecord(item, depth + 1)
+      if (Object.keys(nested).length) result[key] = nested
+    }
+  }
+  return result
+}
+
+function compactString(value: string, maxChars: number): string {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  return normalized.length <= maxChars ? normalized : `${normalized.slice(0, maxChars - 1).trimEnd()}…`
+}
+
+function parseRequestBody(event: FunctionEvent): { ok: true; payload: MarketingAiPayload } | { ok: false; errorCode: string; errorMessage: string } {
+  if (!event.body) return { ok: false, errorCode: 'MISSING_BODY', errorMessage: 'Request body is required.' }
+  try {
+    const text = event.isBase64Encoded ? decodeBase64(event.body) : event.body
+    const value = JSON.parse(text)
+    return isRecord(value) ? { ok: true, payload: value } : { ok: false, errorCode: 'INVALID_JSON_BODY', errorMessage: 'Request body must be an object.' }
+  } catch {
+    return { ok: false, errorCode: 'INVALID_JSON_BODY', errorMessage: 'Request body must be valid JSON.' }
+  }
+}
+
+function errorResponse(statusCode: number, mode: MarketingAiMode | 'unknown', errorCode: string, errorMessage: string, diagnostic?: unknown, validationErrors?: string[], providerDiagnostic?: ProviderResponseDiagnostic) {
+  return jsonResponse(statusCode, { ok: false, mode, errorCode, errorMessage, ...(diagnostic ? { diagnostic } : {}), ...(validationErrors?.length ? { validationErrors } : {}), ...(providerDiagnostic ? { providerDiagnostic } : {}) })
+}
+
+function jsonResponse(statusCode: number, payload: unknown) {
+  return { statusCode, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, body: JSON.stringify(payload) }
 }
 
 function readOptionalStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined
-  const strings = value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-  return strings.length > 0 ? strings : undefined
+  const strings = value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => compactString(item, 300)).slice(0, 4)
+  return strings.length ? strings : undefined
 }
 
-function normalizeGroqModel(model: string | undefined): string {
-  const trimmed = (model || '').trim().replace(/^(['"])(.*)\1$/, '$2').trim()
-  return trimmed || defaultModel
+function readPositiveNumber(value: string | undefined, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
-function buildLocalProviderDiagnostic(
-  mode: MarketingAiMode,
-  providerStatusText: string,
-): GroqProviderDiagnostic {
-  return {
-    provider: 'groq',
-    providerStatus: 0,
-    providerStatusText,
-    modelUsed: normalizeGroqModel(process.env.GROQ_MODEL),
-    mode,
-    attempt: 'json_mode',
-  }
+export function resolveProviderTimeoutMs(
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const legacyTimeout = readPositiveNumber(
+    env.AI_TIMEOUT_MS,
+    readPositiveNumber(env.GEMINI_TIMEOUT_MS, 25000),
+  )
+  return readPositiveNumber(env.AI_PROVIDER_TIMEOUT_MS, legacyTimeout)
 }
 
-async function buildProviderDiagnostic(
-  response: Response,
-  modelUsed: string,
-  mode: MarketingAiMode,
-  attempt: GroqAttempt,
-): Promise<GroqProviderDiagnostic> {
-  const providerError = parseProviderError(await readProviderErrorBody(response))
-
-  return {
-    provider: 'groq',
-    providerStatus: response.status,
-    providerStatusText: response.statusText,
-    providerErrorCode: providerError.code,
-    providerErrorMessage: truncateProviderErrorMessage(providerError.message),
-    modelUsed,
-    mode,
-    attempt,
-  }
+function normalizeModel(value: string): string {
+  return value.replace(/^models\//, '').trim()
 }
 
-async function readProviderErrorBody(response: Response): Promise<string> {
-  try {
-    return await response.text()
-  } catch {
-    return ''
-  }
-}
-
-function parseProviderError(bodyText: string): { code?: string; message?: string } {
-  if (!bodyText.trim()) {
-    return {}
-  }
-
-  try {
-    const body = JSON.parse(bodyText) as unknown
-    if (!isRecord(body) || !isRecord(body.error)) {
-      return {}
-    }
-
-    const { error } = body
-    return {
-      code: typeof error.code === 'string' || typeof error.code === 'number'
-        ? String(error.code)
-        : undefined,
-      message: typeof error.message === 'string' ? error.message : undefined,
-    }
-  } catch {
-    return {
-      message: bodyText,
-    }
-  }
-}
-
-function truncateProviderErrorMessage(message: string | undefined): string | undefined {
-  if (!message) return undefined
-  return message.length > maxProviderErrorMessageChars
-    ? `${message.slice(0, maxProviderErrorMessageChars)}...`
-    : message
-}
-
-interface HybridFallbackDiagnostics {
-  errorCode: string
-  validationIssues: string[]
-  qualityIssues: string[]
-  parseStage: PatchParseStage
-  rawTopLevelKeys: string[]
-  patchTopLevelKeys: string[]
-  patchType: string
-  hasClarifyingAnswers: boolean
-  attemptedRepair: boolean
-  acceptedPatchAreas: string[]
-  patchQualityScore: number
-  modelUsed: string
-  hasBaselineDigest: boolean
-  providerStatus?: number
-  providerStatusText?: string
-  providerErrorCode?: string
-  providerErrorMessage?: string
-  rawPreview?: string
-}
-
-function hybridFallbackResponse(
-  baselinePlan: BaselineMarketingPlan,
-  businessInput: Record<string, unknown>,
-  details: HybridFallbackDiagnostics,
-) {
-  const validationIssues = details.validationIssues.slice(0, 10)
-  const qualityIssues = details.qualityIssues.slice(0, 10)
-  if (validationIssues.length === 0 && qualityIssues.length === 0) {
-    validationIssues.push('AI patch was rejected without a usable enhancement object.')
-  }
-  const diagnostic = {
-    errorCode: details.errorCode, provider: 'groq', modelUsed: details.modelUsed, mode: 'plan',
-    providerStatus: details.providerStatus,
-    providerStatusText: details.providerStatusText,
-    providerErrorCode: details.providerErrorCode,
-    providerErrorMessage: details.providerErrorMessage,
-    parseStage: details.parseStage,
-    rawTopLevelKeys: details.rawTopLevelKeys.slice(0, 20),
-    patchTopLevelKeys: details.patchTopLevelKeys.slice(0, 20),
-    patchType: details.patchType,
-    validationIssues,
-    qualityIssues,
-    acceptedPatchAreas: details.acceptedPatchAreas,
-    patchQualityScore: details.patchQualityScore,
-    hasBaselinePlan: true,
-    hasBaselineDigest: details.hasBaselineDigest,
-    hasClarifyingAnswers: details.hasClarifyingAnswers,
-    attemptedRepair: details.attemptedRepair,
-    rawPreview: details.rawPreview,
-    planSource: 'internal-fallback',
-  }
-  console.error('AI patch quality diagnostic', diagnostic)
-  return jsonResponse(200, {
-    ok: true,
-    mode: 'plan',
-    errorCode: details.errorCode,
-    data: baselineToFinalResponse(baselinePlan, businessInput),
-    planSource: 'internal-fallback',
-    provider: 'groq',
-    modelUsed: details.modelUsed,
-    parseStage: diagnostic.parseStage,
-    rawTopLevelKeys: diagnostic.rawTopLevelKeys,
-    patchTopLevelKeys: diagnostic.patchTopLevelKeys,
-    patchType: diagnostic.patchType,
-    validationIssues: diagnostic.validationIssues,
-    qualityIssues: diagnostic.qualityIssues,
-    acceptedPatchAreas: diagnostic.acceptedPatchAreas,
-    patchQualityScore: diagnostic.patchQualityScore,
-    hasBaselinePlan: true,
-    hasBaselineDigest: details.hasBaselineDigest,
-    hasClarifyingAnswers: diagnostic.hasClarifyingAnswers,
-    attemptedRepair: diagnostic.attemptedRepair,
-    rawPreview: diagnostic.rawPreview,
-    providerStatus: diagnostic.providerStatus,
-    providerStatusText: diagnostic.providerStatusText,
-    providerErrorCode: diagnostic.providerErrorCode,
-    providerErrorMessage: diagnostic.providerErrorMessage,
-  })
-}
-
-function readSuccessfulData(value: unknown): { data: unknown; modelUsed?: string } | null {
-  if (!isRecord(value) || value.ok !== true || !('data' in value)) return null
-  return { data: value.data, modelUsed: typeof value.modelUsed === 'string' ? value.modelUsed : undefined }
-}
-
-function readDiagnosticIssues(value: unknown): string[] {
-  if (!isRecord(value)) return ['Groq patch generation failed.']
-  return ensureIssues([
-    ...readStringArray(value.validationIssues),
-    ...readStringArray(value.qualityIssues),
-    ...readStringArray(value.validationErrors),
-    typeof value.errorMessage === 'string' ? value.errorMessage : '',
-    typeof value.errorCode === 'string' ? `Error code: ${value.errorCode}` : '',
-  ].filter(Boolean).slice(0, 10), 'Groq patch generation failed without detailed issues.')
-}
-
-function readErrorCode(value: unknown): string | undefined {
-  return isRecord(value) && typeof value.errorCode === 'string' ? value.errorCode : undefined
-}
-
-function readModelUsed(value: unknown): string | undefined {
-  return isRecord(value) && typeof value.modelUsed === 'string' ? value.modelUsed : undefined
-}
-
-function readPayloadParseStage(value: unknown): PatchParseStage {
-  if (isRecord(value) && value.parseStage === 'json_parse') return 'json_parse'
-  const code = readErrorCode(value)
-  return code === 'GROQ_JSON_PARSE_FAILED' || code === 'GROQ_JSON_GENERATION_FAILED'
-    ? 'json_parse'
-    : 'provider_response'
-}
-
-function normalizeProviderFailureCode(code: string | undefined): string {
-  if (!code) return 'GROQ_REQUEST_FAILED'
-  if (code === 'AI_JSON_PARSE_FAILED') return 'GROQ_JSON_PARSE_FAILED'
-  return code
-}
-
-function readProviderDetails(value: unknown): Pick<HybridFallbackDiagnostics,
-  'providerStatus' | 'providerStatusText' | 'providerErrorCode' | 'providerErrorMessage'> {
-  if (!isRecord(value)) return {}
-  return {
-    providerStatus: typeof value.providerStatus === 'number' ? value.providerStatus : undefined,
-    providerStatusText: typeof value.providerStatusText === 'string' ? value.providerStatusText : undefined,
-    providerErrorCode: typeof value.providerErrorCode === 'string' ? value.providerErrorCode : undefined,
-    providerErrorMessage: typeof value.providerErrorMessage === 'string'
-      ? truncateProviderErrorMessage(value.providerErrorMessage)
-      : undefined,
-  }
-}
-
-function ensureIssues(issues: string[], fallback: string): string[] {
-  const usable = [...new Set(issues.map((issue) => issue.trim()).filter(Boolean))]
-  return usable.length ? usable.slice(0, 20) : [fallback]
-}
-
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
-}
-
-function isBaselineMarketingPlan(value: unknown): value is BaselineMarketingPlan {
-  if (!isRecord(value)) return false
-  const stringKeys = [
-    'businessSummary', 'customerDevelopmentStage', 'targetMarket', 'positioningStatement',
-    'valueProposition', 'usp', 'pricingRecommendation',
-  ]
-  const arrayKeys = [
-    'marketSegments', 'customerPersonas', 'competitorAnalysis', 'funnelJourney',
-    'channelStrategy', 'kpiDashboard', 'actionPlan', 'risksAssumptions',
-  ]
-  return stringKeys.every((key) => typeof value[key] === 'string')
-    && arrayKeys.every((key) => Array.isArray(value[key]))
-    && isRecord(value.marketingMix7p)
-    && isRecord(value.qualityScore)
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
 function decodeBase64(value: string): string {
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(value, 'base64').toString('utf8')
-  }
-
+  if (typeof Buffer !== 'undefined') return Buffer.from(value, 'base64').toString('utf8')
   return atob(value)
 }
 
@@ -926,25 +612,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
+function safeProviderResponseLog(diagnostic: ProviderResponseDiagnostic): void {
+  console.info('MarketPilot AI provider response diagnostic', diagnostic)
 }
 
-function providerErrorCodeForStatus(status: number): string {
-  if (status === 401 || status === 403) return 'GROQ_AUTH_FAILED'
-  if (status === 429) return 'GROQ_RATE_LIMITED'
-  return 'GROQ_REQUEST_FAILED'
+function safeProviderRequestErrorLog(error: ProviderRequestError): void {
+  console.warn('MarketPilot AI provider request diagnostic', {
+    providerHttpStatus: error.metadata?.httpStatus,
+    providerErrorCode: error.metadata?.providerCode,
+    providerErrorType: error.metadata?.providerType,
+    providerRequestId: error.metadata?.requestId,
+    providerMessage: error.metadata?.sanitizedMessage,
+  })
 }
 
-function isReasoningEffortRejected(diagnostic: GroqProviderDiagnostic): boolean {
-  const details = `${diagnostic.providerErrorCode || ''} ${diagnostic.providerErrorMessage || ''}`.toLowerCase()
-  return diagnostic.providerStatus === 400 && /reasoning[_\s-]?effort/.test(details)
-}
-
-function isGroqTimeoutError(error: unknown): boolean {
-  return error instanceof Error && error.message === 'GROQ_TIMEOUT'
-}
-
-function isGroqProviderError(error: unknown): error is GroqProviderError {
-  return error instanceof GroqProviderError
+function safeValueLength(value: unknown): number {
+  if (typeof value === 'string') return value.length
+  if (Array.isArray(value)) return value.reduce((total, item) => total + safeValueLength(item), 0)
+  return 0
 }

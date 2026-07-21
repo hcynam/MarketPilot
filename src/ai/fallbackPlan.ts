@@ -2,7 +2,7 @@ import { generateMarketingPlan } from '../engine/orchestrator'
 import type { BusinessInput, MarketingPlan } from '../types'
 
 export const fallbackMarketingPlanMessage =
-  'به دلیل محدودیت موقت سرویس هوش مصنوعی، برنامه بازاریابی با موتور تحلیلی داخلی MarketPilot تولید شد.'
+  'برنامه کامل با موتور داخلی MarketPilot تولید شد؛ بهبود هوش مصنوعی اعمال نشد.'
 
 export type FallbackMarketingPlan = MarketingPlan & {
   fallbackMessage: string

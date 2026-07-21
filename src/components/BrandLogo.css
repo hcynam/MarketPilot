@@ -1,0 +1,46 @@
+.brand-logo {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mp-space-2);
+  color: var(--mp-ink);
+  direction: ltr;
+}
+
+.brand-logo__symbol {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.brand-logo--sm .brand-logo__symbol { width: 32px; height: 32px; }
+.brand-logo--lg .brand-logo__symbol { width: 46px; height: 46px; }
+
+.brand-logo__route,
+.brand-logo__branch,
+.brand-logo__heading {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.brand-logo__route { stroke: var(--mp-primary); stroke-width: 5; }
+.brand-logo__branch { stroke: var(--mp-accent); stroke-width: 3.25; }
+.brand-logo__heading { stroke: var(--mp-primary); stroke-width: 4; }
+.brand-logo__node { fill: var(--mp-surface); stroke: var(--mp-primary); stroke-width: 2.5; }
+
+.brand-logo__wordmark {
+  color: var(--mp-ink);
+  font-family: var(--font-ui);
+  font-size: var(--mp-text-base);
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.brand-logo__wordmark small {
+  color: var(--mp-primary);
+  font-size: .72em;
+  font-weight: 850;
+}
