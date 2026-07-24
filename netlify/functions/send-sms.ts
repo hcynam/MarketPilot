@@ -36,7 +36,6 @@ export async function handler(event: FunctionEvent) {
   const missingEnv = [
     !apiKey ? 'KAVENEGAR_API_KEY' : null,
     !hookSecret ? 'SUPABASE_SMS_HOOK_SECRET' : null,
-    !sender ? 'KAVENEGAR_SENDER' : null,
   ].filter(Boolean)
   if (missingEnv.length > 0) {
     logError('configuration', { code: 'MISSING_ENVIRONMENT_VARIABLE', missingEnv })
@@ -78,7 +77,7 @@ export async function handler(event: FunctionEvent) {
 
   const url = new URL(`https://api.kavenegar.com/v1/${encodeURIComponent(apiKey)}/sms/send.json`)
   url.searchParams.set('receptor', receptor)
-  url.searchParams.set('sender', sender)
+  if (sender) url.searchParams.set('sender', sender)
   url.searchParams.set('message', message)
 
   try {
