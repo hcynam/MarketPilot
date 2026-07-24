@@ -11,11 +11,11 @@ interface FunctionEvent {
 
 interface SendSmsPayload {
   user?: { phone?: unknown }
-  sms?: { otp?: unknown; message?: unknown }
+  sms?: { otp?: unknown }
 }
 
 interface KavenegarResponse {
-  return?: { status?: number }
+  return?: { status?: number; message?: string }
   entries?: unknown[]
 }
 
@@ -32,10 +32,11 @@ export async function handler(event: FunctionEvent) {
 
   const apiKey = process.env.KAVENEGAR_API_KEY?.trim()
   const hookSecret = process.env.SUPABASE_SMS_HOOK_SECRET?.trim()
-  const sender = process.env.KAVENEGAR_SENDER?.trim()
+  const verifyTemplate = process.env.KAVENEGAR_VERIFY_TEMPLATE?.trim()
   const missingEnv = [
     !apiKey ? 'KAVENEGAR_API_KEY' : null,
     !hookSecret ? 'SUPABASE_SMS_HOOK_SECRET' : null,
+    !verifyTemplate ? 'KAVENEGAR_VERIFY_TEMPLATE' : null,
   ].filter(Boolean)
   if (missingEnv.length > 0) {
     logError('configuration', { code: 'MISSING_ENVIRONMENT_VARIABLE', missingEnv })
@@ -69,16 +70,15 @@ export async function handler(event: FunctionEvent) {
 
   const receptor = normalizeIranianPhone(payload.user?.phone)
   const otp = normalizeOtp(payload.sms?.otp)
-  const message = normalizeMessage(payload.sms?.message) ?? (otp ? `کد ورود به مارکت پایلوت: ${otp}` : null)
-  if (!receptor || !otp || !message) {
+  if (!receptor || !otp) {
     logError('payload', { code: 'INVALID_PHONE_OR_OTP' })
     return json(422, 'INVALID_SMS_PAYLOAD', 'The phone number or OTP is invalid.')
   }
 
-  const url = new URL(`https://api.kavenegar.com/v1/${encodeURIComponent(apiKey)}/sms/send.json`)
+  const url = new URL(`https://api.kavenegar.com/v1/${encodeURIComponent(apiKey)}/verify/lookup.json`)
   url.searchParams.set('receptor', receptor)
-  url.searchParams.set('message', message)
-  if (sender) url.searchParams.set('sender', sender)
+  url.searchParams.set('token', otp)
+  url.searchParams.set('template', verifyTemplate)
 
   try {
     const response = await fetch(url, {
@@ -91,7 +91,11 @@ export async function handler(event: FunctionEvent) {
     const sent = response.ok && providerStatus === 200 && Array.isArray(providerBody?.entries)
 
     if (!sent) {
-      logError('provider', { httpStatus: response.status, providerStatus })
+      logError('provider', {
+        httpStatus: response.status,
+        providerStatus,
+        providerMessage: providerBody?.return?.message,
+      })
       return json(502, 'SMS_PROVIDER_FAILED', 'The SMS provider rejected the request.')
     }
 
@@ -130,12 +134,6 @@ function normalizeOtp(value: unknown): string | null {
   if (typeof value !== 'string' && typeof value !== 'number') return null
   const otp = String(value).trim()
   return /^\d{4,10}$/.test(otp) ? otp : null
-}
-
-function normalizeMessage(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const message = value.trim()
-  return message && message.length <= 500 ? message : null
 }
 
 function getHeader(headers: Record<string, string | undefined> | undefined, name: string): string | null {

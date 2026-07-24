@@ -8,13 +8,21 @@ insert into auth.users (
   created_at, updated_at
 ) values
   ('00000000-0000-0000-0000-000000000000', '11111111-1111-4111-8111-111111111111', 'authenticated', 'authenticated',
-   'rls-a@example.test', '+989120000001', crypt('Test-password-1', gen_salt('bf')), now(), now(), '{}',
+   'rls-a@example.test', '989120000001', crypt('Test-password-1', gen_salt('bf')), now(), now(), '{}',
    '{"first_name":"کاربر","last_name":"آزمایشی الف","email":"rls-a@example.test","terms_accepted":true,"privacy_accepted":true}', now(), now()),
   ('00000000-0000-0000-0000-000000000000', '22222222-2222-4222-8222-222222222222', 'authenticated', 'authenticated',
-   'rls-b@example.test', '+989120000002', crypt('Test-password-2', gen_salt('bf')), now(), now(), '{}',
+   'rls-b@example.test', '989120000002', crypt('Test-password-2', gen_salt('bf')), now(), now(), '{}',
    '{"first_name":"کاربر","last_name":"آزمایشی ب","email":"rls-b@example.test","terms_accepted":true,"privacy_accepted":true}', now(), now());
 
 update public.profiles set is_active = true, phone_verified_at = now();
+
+do $$
+begin
+  if (select phone from public.profiles where id = '11111111-1111-4111-8111-111111111111') <> '+989120000001' then
+    raise exception 'signup trigger did not restore E.164 plus prefix';
+  end if;
+end;
+$$;
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}';
