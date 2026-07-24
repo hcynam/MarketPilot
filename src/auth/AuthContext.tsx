@@ -9,15 +9,22 @@ import {
 } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { isSupabaseConfigured, requireSupabase, supabase } from '../lib/supabase'
+import { accountRequest, ensureCompletedAccount } from './accountCompletion'
 import { isValidPhone, normalizeEmail, normalizePhone } from './validation'
-import type { AuthState, PendingRegistration, RegistrationInput, UserProfile } from './types'
+import type {
+  AuthState,
+  PendingRegistration,
+  RegistrationInput,
+  RegistrationStartResult,
+  UserProfile,
+} from './types'
 
 const PENDING_REGISTRATION_KEY = 'marketpilot-pending-registration-v1'
 
 interface AuthContextValue extends AuthState {
   refreshProfile: () => Promise<UserProfile | null>
-  startRegistration: (input: RegistrationInput) => Promise<PendingRegistration>
-  verifyRegistration: (phone: string, token: string) => Promise<void>
+  startRegistration: (input: RegistrationInput) => Promise<RegistrationStartResult>
+  verifyRegistration: (phone: string, token: string, email?: string) => Promise<void>
   resendRegistrationOtp: (phone: string) => Promise<void>
   signInWithPassword: (phone: string, password: string, countryCode?: string) => Promise<void>
   sendLoginOtp: (phone: string) => Promise<void>
@@ -93,12 +100,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshProfile])
 
-  const startRegistration = useCallback(async (input: RegistrationInput): Promise<PendingRegistration> => {
+  const startRegistration = useCallback(async (input: RegistrationInput): Promise<RegistrationStartResult> => {
     const client = requireSupabase()
     const phone = normalizePhone(input.countryCode, input.phone)
     const email = normalizeEmail(input.email)
 
-    await accountRequest('preflight', { email, phone })
+    const preflight = await accountRequest('preflight', { email, phone })
+    const pending = { phone, email, createdAt: new Date().toISOString() }
+    if (preflight.status === 'resume') {
+      const { data, error } = await client.auth.signInWithPassword({ phone, password: input.password })
+      if (!error && data.session) {
+        await accountRequest('finalize', { email }, data.session.access_token)
+        await client.auth.refreshSession()
+        await refreshProfile()
+        sessionStorage.removeItem(PENDING_REGISTRATION_KEY)
+        return { pending, completed: true }
+      }
+
+      if (!isUnconfirmedPhoneError(error?.message)) throw new Error('LOGIN_INVALID')
+      const { error: resendError } = await client.auth.resend({ phone, type: 'sms' })
+      if (resendError) throw new Error(mapAuthError(resendError.message))
+      sessionStorage.setItem(PENDING_REGISTRATION_KEY, JSON.stringify(pending))
+      return { pending, completed: false }
+    }
+
     const { error } = await client.auth.signUp({
       phone,
       password: input.password,
@@ -126,16 +151,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     if (error) throw new Error(mapAuthError(error.message))
 
-    const pending = { phone, email, createdAt: new Date().toISOString() }
     sessionStorage.setItem(PENDING_REGISTRATION_KEY, JSON.stringify(pending))
-    return pending
-  }, [])
+    return { pending, completed: false }
+  }, [refreshProfile])
 
-  const verifyRegistration = useCallback(async (phone: string, token: string): Promise<void> => {
+  const verifyRegistration = useCallback(async (phone: string, token: string, email?: string): Promise<void> => {
     const client = requireSupabase()
     const { data, error } = await client.auth.verifyOtp({ phone, token, type: 'sms' })
     if (error || !data.session) throw new Error(mapOtpError(error?.message))
-    await accountRequest('finalize', {}, data.session.access_token)
+    await accountRequest('finalize', email ? { email } : {}, data.session.access_token)
     await client.auth.refreshSession()
     await refreshProfile()
     sessionStorage.removeItem(PENDING_REGISTRATION_KEY)
@@ -152,7 +176,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isValidPhone(normalizedPhone)) throw new Error('LOGIN_PHONE_INVALID')
     const { data, error } = await client.auth.signInWithPassword({ phone: normalizedPhone, password })
     if (error || !data.session) throw new Error('LOGIN_INVALID')
-    const currentProfile = await refreshProfile()
+    let currentProfile: UserProfile | null
+    try {
+      currentProfile = await ensureCompletedAccount(data.session.access_token, refreshProfile)
+    } catch (completionError) {
+      await client.auth.signOut()
+      throw completionError
+    }
     if (!currentProfile?.isActive || !currentProfile.phoneVerifiedAt) {
       await client.auth.signOut()
       throw new Error('ACCOUNT_NOT_ACTIVE')
@@ -165,9 +195,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       phone,
       options: { shouldCreateUser: false },
     })
-    // #region agent log
-    fetch('http://127.0.0.1:7773/ingest/afbfef74-f320-498c-8563-5938b6d7d154',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8bc043'},body:JSON.stringify({sessionId:'8bc043',runId:'pre-fix',hypothesisId:'C',location:'AuthContext.tsx:sendLoginOtp',message:'signInWithOtp result',data:{phonePrefix:phone.slice(0,4),hasError:Boolean(error),errorMessage:error?.message ?? null},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (error) throw new Error(mapAuthError(error.message))
   }, [])
 
@@ -175,7 +202,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const client = requireSupabase()
     const { data, error } = await client.auth.verifyOtp({ phone, token, type: 'sms' })
     if (error || !data.session) throw new Error(mapOtpError(error?.message))
-    const currentProfile = await refreshProfile()
+    let currentProfile: UserProfile | null
+    try {
+      currentProfile = await ensureCompletedAccount(data.session.access_token, refreshProfile)
+    } catch (completionError) {
+      await client.auth.signOut()
+      throw completionError
+    }
     if (!currentProfile?.isActive) {
       await client.auth.signOut()
       throw new Error('ACCOUNT_NOT_ACTIVE')
@@ -294,22 +327,6 @@ async function recordLogin(): Promise<void> {
   await client.from('product_events').insert({ event_name: 'login', metadata: {} })
 }
 
-async function accountRequest(action: string, payload: Record<string, unknown>, token?: string): Promise<void> {
-  const response = await fetch('/.netlify/functions/account-registration', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ action, ...payload }),
-  })
-  const body = await response.json().catch(() => ({ code: 'ACCOUNT_REQUEST_FAILED' })) as { code?: string }
-  // #region agent log
-  fetch('http://127.0.0.1:7773/ingest/afbfef74-f320-498c-8563-5938b6d7d154',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8bc043'},body:JSON.stringify({sessionId:'8bc043',runId:'pre-fix',hypothesisId:'A',location:'AuthContext.tsx:accountRequest',message:'account-registration response',data:{action,status:response.status,code:body.code ?? null,ok:response.ok},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
-  if (!response.ok) throw new Error(body.code ?? 'ACCOUNT_REQUEST_FAILED')
-}
-
 function mapProfile(row: Record<string, unknown>): UserProfile {
   return {
     id: String(row.id),
@@ -351,4 +368,9 @@ function mapAuthError(message: string): string {
   if (lower.includes('already') || lower.includes('registered')) return 'CONTACT_ALREADY_REGISTERED'
   if (lower.includes('password')) return 'PASSWORD_REJECTED'
   return 'AUTH_REQUEST_FAILED'
+}
+
+function isUnconfirmedPhoneError(message?: string): boolean {
+  const lower = message?.toLowerCase() ?? ''
+  return lower.includes('phone not confirmed') || lower.includes('not confirmed')
 }

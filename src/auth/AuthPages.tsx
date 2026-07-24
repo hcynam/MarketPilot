@@ -208,8 +208,11 @@ export function SignupPage() {
     setBusy(true)
     setFormError('')
     try {
-      await auth.startRegistration(values)
-      navigate(buildAuthPath('verify-phone', { reason, returnTo }), { replace: true })
+      const result = await auth.startRegistration(values)
+      navigate(
+        result.completed ? returnTo : buildAuthPath('verify-phone', { reason, returnTo }),
+        { replace: true },
+      )
     } catch (caught) {
       const code = errorCode(caught)
       if (code === 'EMAIL_ALREADY_REGISTERED') setErrors((current) => ({ ...current, email: 'این ایمیل قبلاً برای یک حساب ثبت شده است.' }))
@@ -279,7 +282,7 @@ export function VerifyPhonePage() {
     setBusy(true)
     setError('')
     try {
-      await auth.verifyRegistration(pending.phone, code)
+      await auth.verifyRegistration(pending.phone, code, pending.email)
       navigate(returnTo, { replace: true })
     } catch (caught) {
       setError(authMessage(caught))

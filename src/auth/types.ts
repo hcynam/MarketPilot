@@ -63,3 +63,8 @@ export interface PendingRegistration {
   email: string
   createdAt: string
 }
+
+export interface RegistrationStartResult {
+  pending: PendingRegistration
+  completed: boolean
+}
