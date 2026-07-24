@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 const REQUIRED = [
   'SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
-  'KAVENEGAR_VERIFY_TEMPLATE',
+  'KAVENEGAR_SENDER',
 ]
 
 function loadEnvFile(path) {
@@ -45,7 +45,7 @@ const supabaseUrl = local.SUPABASE_URL || viteUrl
 const toSet = {
   SUPABASE_URL: supabaseUrl,
   SUPABASE_SERVICE_ROLE_KEY: local.SUPABASE_SERVICE_ROLE_KEY,
-  KAVENEGAR_VERIFY_TEMPLATE: local.KAVENEGAR_VERIFY_TEMPLATE || process.env.KAVENEGAR_VERIFY_TEMPLATE || '',
+  KAVENEGAR_SENDER: local.KAVENEGAR_SENDER || process.env.KAVENEGAR_SENDER || '',
 }
 
 for (const key of REQUIRED) {
