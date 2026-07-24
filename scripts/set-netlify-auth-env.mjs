@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs'
 const REQUIRED = [
   'SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
+  'KAVENEGAR_VERIFY_TEMPLATE',
 ]
-const OPTIONAL = ['KAVENEGAR_SENDER']
 
 function loadEnvFile(path) {
   const values = {}
@@ -45,7 +45,7 @@ const supabaseUrl = local.SUPABASE_URL || viteUrl
 const toSet = {
   SUPABASE_URL: supabaseUrl,
   SUPABASE_SERVICE_ROLE_KEY: local.SUPABASE_SERVICE_ROLE_KEY,
-  KAVENEGAR_SENDER: local.KAVENEGAR_SENDER || process.env.KAVENEGAR_SENDER || '',
+  KAVENEGAR_VERIFY_TEMPLATE: local.KAVENEGAR_VERIFY_TEMPLATE || process.env.KAVENEGAR_VERIFY_TEMPLATE || '',
 }
 
 for (const key of REQUIRED) {
@@ -62,17 +62,4 @@ for (const key of REQUIRED) {
   }
   console.log(`Setting ${key} on Netlify production...`)
   setNetlifyEnv(key, next, { secret: key.includes('KEY') || key.includes('SECRET') })
-}
-
-for (const key of OPTIONAL) {
-  const existing = getNetlifyEnv(key)
-  const next = toSet[key]
-  if (existing) {
-    console.log(`${key}: already set on production`)
-  } else if (next) {
-    console.log(`Setting optional ${key} on Netlify production...`)
-    setNetlifyEnv(key, next)
-  } else {
-    console.log(`${key}: optional; not set so Kavenegar can use the account default`)
-  }
 }
